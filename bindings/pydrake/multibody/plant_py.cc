@@ -872,6 +872,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("is_finalized", &Class::is_finalized, cls_doc.is_finalized.doc)
         .def("Finalize", py::overload_cast<>(&Class::Finalize),
             cls_doc.Finalize.doc)
+        .def("set_discrete_contact_solver_type", &Class::set_discrete_contact_solver_type, py::arg("solver"),
+            cls_doc.set_discrete_contact_solver_type.doc)
+        .def("get_discrete_contact_solver_type", &Class::get_discrete_contact_solver_type,
+            cls_doc.get_discrete_contact_solver_type.doc)
         .def("set_contact_model", &Class::set_contact_model, py::arg("model"),
             cls_doc.set_contact_model.doc)
         .def("get_contact_model", &Class::get_contact_model,
@@ -1272,6 +1276,14 @@ PYBIND11_MODULE(plant, m) {
         // Legacy alias. TODO(jwnimmer-tri) Deprecate this constant.
         .value("kPointContactOnly", Class::kPointContactOnly,
             cls_doc.kPointContactOnly.doc);
+  }
+
+  {
+    using Class = DiscreteContactSolverType;
+    constexpr auto& cls_doc = doc.DiscreteContactSolverType;
+    py::enum_<Class>(m, "DiscreteContactSolverType", cls_doc.doc)
+        .value("kSap", Class::kSap, cls_doc.kSap.doc)
+        .value("kTamsi", Class::kTamsi, cls_doc.kTamsi.doc);
   }
 
   {
