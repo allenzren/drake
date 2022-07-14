@@ -872,10 +872,10 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("is_finalized", &Class::is_finalized, cls_doc.is_finalized.doc)
         .def("Finalize", py::overload_cast<>(&Class::Finalize),
             cls_doc.Finalize.doc)
-        .def("set_discrete_contact_solver_type", &Class::set_discrete_contact_solver_type, py::arg("solver"),
-            cls_doc.set_discrete_contact_solver_type.doc)
-        .def("get_discrete_contact_solver_type", &Class::get_discrete_contact_solver_type,
-            cls_doc.get_discrete_contact_solver_type.doc)
+        .def("set_discrete_contact_solver", &Class::set_discrete_contact_solver, py::arg("solver"),
+            cls_doc.set_discrete_contact_solver.doc)
+        .def("get_discrete_contact_solver", &Class::get_discrete_contact_solver,
+            cls_doc.get_discrete_contact_solver.doc)
         .def("set_contact_model", &Class::set_contact_model, py::arg("model"),
             cls_doc.set_contact_model.doc)
         .def("get_contact_model", &Class::get_contact_model,
@@ -1279,9 +1279,9 @@ PYBIND11_MODULE(plant, m) {
   }
 
   {
-    using Class = DiscreteContactSolverType;
-    constexpr auto& cls_doc = doc.DiscreteContactSolverType;
-    py::enum_<Class>(m, "DiscreteContactSolverType", cls_doc.doc)
+    using Class = DiscreteContactSolver;
+    constexpr auto& cls_doc = doc.DiscreteContactSolver;
+    py::enum_<Class>(m, "DiscreteContactSolver", cls_doc.doc)
         .value("kSap", Class::kSap, cls_doc.kSap.doc)
         .value("kTamsi", Class::kTamsi, cls_doc.kTamsi.doc);
   }
