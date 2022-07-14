@@ -111,7 +111,7 @@ enum class ContactModel {
 /// - [Castro et al., 2022] Castro A., Permenter F. and Han X., 2022. An
 ///   Unconstrained Convex Formulation of Compliant Contact. Available online at
 ///   https://arxiv.org/abs/2110.10107.
-enum class DiscreteContactSolverType {
+enum class DiscreteContactSolver {
   /// TAMSI solver, see [Castro et al., 2019].
   kTamsi,
   /// SAP solver, see [Castro et al., 2022].
@@ -385,7 +385,7 @@ the following properties for point contact modeling:
 |  material  | coulomb_friction |   yes¹   | CoulombFriction<T> | Static and Dynamic friction. |
 |  material  | point_contact_stiffness |  no²  | T | Penalty method stiffness. |
 |  material  | hunt_crossley_dissipation |  no²⁴  | T | Penalty method dissipation. |
-|  material  | dissipation_timescale |  yes³⁴  | T | Linear dissipation parameter. |
+|  material  | relaxation_time |  yes³⁴  | T | Parameter for a linear Kelvin–Voigt model of dissipation. |
 
 
 ¹ Collision geometry is required to be registered with a
@@ -398,22 +398,21 @@ the following properties for point contact modeling:
   section @ref mbp_penalty_method "Penalty method point contact" for further
   details.
 
-³ When using a linear model of dissipation (for instance when selecting the SAP
-  solver), collision geometry is required to be registered with a
-  geometry::ProximityProperties object that contains the ("material",
-  "dissipation_timescale") property. If the property is missing, an exception
-  will be thrown.
+³ When using a linear Kelvin–Voigt model of dissipation (for instance when
+  selecting the SAP solver), collision geometry is required to be registered
+  with a geometry::ProximityProperties object that contains the ("material",
+  "relaxation_time") property. If the property is missing, an exception will be
+  thrown.
 
-⁴ We allow to specify both hunt_crossley_dissipation and dissipation_timescale
-  for a given geometry. However only one of these will get used, depending on
-  the configuration of the %MultibodyPlant. As an example, if the SAP solver is
-  specified (see set_discrete_contact_solver_type()) only the
-  dissipation_timescale is used while hunt_crossley_dissipation is ignored.
-  Conversely, if the TAMSI solver is used (see
-  set_discrete_contact_solver_type()) only hunt_crossley_dissipation is used
-  while dissipation_timescale is ignored. Currently, a continuous
-  %MultibodyPlant model will always use the Hunt & Crossley model and
-  dissipation_timescale will be ignored.
+⁴ We allow to specify both hunt_crossley_dissipation and relaxation_time for a
+  given geometry. However only one of these will get used, depending on the
+  configuration of the %MultibodyPlant. As an example, if the SAP solver is
+  specified (see set_discrete_contact_solver()) only the relaxation_time is used
+  while hunt_crossley_dissipation is ignored. Conversely, if the TAMSI solver is
+  used (see set_discrete_contact_solver()) only hunt_crossley_dissipation is
+  used while relaxation_time is ignored. Currently, a continuous %MultibodyPlant
+  model will always use the Hunt & Crossley model and relaxation_time will be
+  ignored.
 
 Accessing and modifying contact properties requires interfacing with
 geometry::SceneGraph's model inspector. Interfacing with a model inspector
@@ -1639,10 +1638,10 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
 
   /// Sets the contact solver type used for discrete %MultibodyPlant models.
   /// @throws std::exception iff called post-finalize.
-  void set_discrete_contact_solver_type(DiscreteContactSolverType solver_type);
+  void set_discrete_contact_solver(DiscreteContactSolver contact_solver);
 
   /// Returns the contact solver type used for discrete %MultibodyPlant models.
-  DiscreteContactSolverType get_discrete_contact_solver_type() const;
+  DiscreteContactSolver get_discrete_contact_solver() const;
 
   /// Return the default value for contact representation, given the desired
   /// time step. Discrete systems default to use polygons; continuous systems
@@ -4931,7 +4930,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   // The solver type used by a discrete plant. Keep this in sync
   // with the default value in multibody_plant_config.h; there are already
   // assertions in the cc file that enforce this.
-  DiscreteContactSolverType solver_type_{DiscreteContactSolverType::kTamsi};
+  DiscreteContactSolver contact_solver_enum_{DiscreteContactSolver::kTamsi};
 
   // User's choice of the representation of contact surfaces in discrete
   // systems. The default value is dependent on whether the system is
