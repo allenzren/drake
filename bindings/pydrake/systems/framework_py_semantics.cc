@@ -414,7 +414,12 @@ void DoScalarDependentDefinitions(py::module m) {
             [](Context<T>* self, const Context<U>& source) {
               self->SetTimeStateAndParametersFrom(source);
             },
-            py::arg("source"), doc.Context.SetTimeStateAndParametersFrom.doc);
+            py::arg("source"), doc.Context.SetTimeStateAndParametersFrom.doc)
+        .def("SetStateAndParametersFrom",
+            [](Context<T>* self, const Context<U>& source) {
+              self->SetStateAndParametersFrom(source);
+            },
+            py::arg("source"), doc.Context.SetStateAndParametersFrom.doc);
       };
   type_visit(
       bind_context_methods_templated_on_a_secondary_scalar, CommonScalarPack{});
