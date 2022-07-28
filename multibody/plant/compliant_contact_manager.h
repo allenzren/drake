@@ -20,6 +20,16 @@ namespace drake {
 namespace multibody {
 namespace internal {
 
+// Struct used to conglomerate the indexes of cache entries declared by the
+// manager.
+struct CacheIndexes {
+  CacheIndexes() = default;
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(CacheIndexes);
+  systems::CacheIndex contact_problem;
+  systems::CacheIndex discrete_contact_pairs;
+  systems::CacheIndex non_contact_forces_accelerations;
+};
+
 template <typename T>
 struct ContactPairKinematics {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactPairKinematics);
@@ -144,19 +154,27 @@ class CompliantContactManager final
   }
 
  private:
-  // Struct used to conglomerate the indexes of cache entries declared by the
-  // manager.
-  struct CacheIndexes {
-    systems::CacheIndex contact_problem;
-    systems::CacheIndex discrete_contact_pairs;
-    systems::CacheIndex non_contact_forces_accelerations;
-  };
+  // Allow different specializations to access each other's private data for
+  // scalar conversion.
+  template <typename U>
+  friend class CompliantContactManager;
 
   // Provide private access for unit testing only.
   friend class CompliantContactManagerTest;
 
   const MultibodyTreeTopology& tree_topology() const {
     return internal::GetInternalTree(this->plant()).get_topology();
+  }
+
+  bool is_cloneable_to_autodiff() const final { return true; }
+
+  std::unique_ptr<DiscreteUpdateManager<AutoDiffXd>> CloneToAutoDiffXd()
+      const final {
+    auto clone = std::make_unique<CompliantContactManager<AutoDiffXd>>();
+    clone->sap_parameters_ = this->sap_parameters_;
+    clone->joint_damping_ = this->joint_damping_;
+    clone->cache_indexes_ = this->cache_indexes_;
+    return clone;
   }
 
   // Extracts non state dependent model information from MultibodyPlant. See
