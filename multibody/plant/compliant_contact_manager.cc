@@ -513,8 +513,7 @@ void CompliantContactManager<T>::CalcNonContactForcesExcludingJointLimits(
 template <typename T>
 void CompliantContactManager<T>::CalcAccelerationsDueToNonContactForcesCache(
     const systems::Context<T>& context,
-    AccelerationsDueToExternalForcesCache<T>* forward_dynamics_cache)
-    const {
+    AccelerationsDueToExternalForcesCache<T>* forward_dynamics_cache) const {
   DRAKE_DEMAND(forward_dynamics_cache != nullptr);
   ScopeExit guard = this->ThrowIfNonContactForceInProgress(context);
 
@@ -736,7 +735,7 @@ CompliantContactManager<T>::AddContactConstraints(
   // Parameters used by SAP to estimate regularization, see [Castro et al.,
   // 2021].
   // TODO(amcastro-tri): consider exposing these parameters.
-  constexpr double beta = 1.0;
+  constexpr double beta = 0.1;
   constexpr double sigma = 1.0e-3;
 
   const std::vector<DiscreteContactPair<T>>& contact_pairs =
@@ -877,6 +876,136 @@ void CompliantContactManager<T>::AddLimitConstraints(
 }
 
 template <typename T>
+void CompliantContactManager<T>::AddCouplerConstraints(
+    const systems::Context<T>& context, SapContactProblem<T>* problem) const {
+  DRAKE_DEMAND(problem != nullptr);
+
+  // Previous time step positions.
+  const VectorX<T> q0 = plant().GetPositions(context);
+
+  // Couplers do not have impulse limits, they are bi-lateral constraints. Each
+  // coupler constraint introduces a single constraint equation.
+  constexpr double kInfinity = std::numeric_limits<double>::infinity();
+  const Vector1<T> gamma_lower(-kInfinity);
+  const Vector1<T> gamma_upper(kInfinity);
+
+  // Stiffness and dissipation are set so that the constraint is in the
+  // "near-rigid" regime, [Castro et al., 2022].
+  const Vector1<T> stiffness(kInfinity);
+  const Vector1<T> relaxation_time(plant().time_step());
+
+  for (const CouplerConstraintSpecs<T>& info :
+       this->coupler_constraints_specs()) {
+    const Joint<T>& joint0 = plant().get_joint(info.joint0_index);
+    const Joint<T>& joint1 = plant().get_joint(info.joint1_index);
+    const int dof0 = joint0.velocity_start();
+    const int dof1 = joint1.velocity_start();
+    const TreeIndex tree0 = tree_topology().velocity_to_tree_index(dof0);
+    const TreeIndex tree1 = tree_topology().velocity_to_tree_index(dof1);
+
+    // Sanity check.
+    DRAKE_DEMAND(tree0.is_valid() && tree1.is_valid());
+
+    // DOFs local to their tree.
+    const int tree_dof0 = dof0 - tree_topology().tree_velocities_start(tree0);
+    const int tree_dof1 = dof1 - tree_topology().tree_velocities_start(tree1);
+
+    // Constraint function defined as g = q₀ - ρ⋅q₁ - Δq, with ρ the gear ratio
+    // and Δq a fixed position offset.
+    const Vector1<T> g0(q0[dof0] - info.gear_ratio * q0[dof1] - info.offset);
+
+    // TODO(amcastro-tri): consider exposing this parameter.
+    const double beta = 0.1;
+
+    const typename SapHolonomicConstraint<T>::Parameters parameters{
+        gamma_lower, gamma_upper, stiffness, relaxation_time, beta};
+
+    if (tree0 == tree1) {
+      const int nv = tree_topology().num_tree_velocities(tree0);
+      MatrixX<T> J = MatrixX<T>::Zero(1, nv);
+      // J = dg/dv
+      J(0, tree_dof0) = 1.0;
+      J(0, tree_dof1) = -info.gear_ratio;
+
+      problem->AddConstraint(std::make_unique<SapHolonomicConstraint<T>>(
+          tree0, g0, J, parameters));
+    } else {
+      const int nv0 = tree_topology().num_tree_velocities(tree0);
+      const int nv1 = tree_topology().num_tree_velocities(tree1);
+      MatrixX<T> J0 = MatrixX<T>::Zero(1, nv0);
+      MatrixX<T> J1 = MatrixX<T>::Zero(1, nv1);
+      J0(0, tree_dof0) = 1.0;
+      J1(0, tree_dof1) = -info.gear_ratio;
+      problem->AddConstraint(std::make_unique<SapHolonomicConstraint<T>>(
+          tree0, tree1, g0, J0, J1, parameters));
+    }
+  }
+}
+
+template <typename T>
+void CompliantContactManager<T>::AddPdControllerConstraints(
+    const systems::Context<T>& context, SapContactProblem<T>* problem) const {
+  DRAKE_DEMAND(problem != nullptr);
+
+  // Do nothing if not PD controllers were specified.
+  if (this->pd_controller_specs_.size() == 0) return;
+
+  // Previous time step positions.
+  const VectorX<T> q0 = plant().GetPositions(context);
+
+  // Desired positions & velocities.
+  const int num_actuators = plant().num_actuators();
+  // TODO(amcastro-tri): makes these EvalFoo() instead to avoid heap
+  // allocations.
+  const VectorX<T> desired_state = this->AssembleDesiredStateInput(context);
+  const VectorX<T> feed_forward_actuation =
+      this->AssembleActuationInput(context);
+
+  // TODO(amcastro-tri): consider exposing this parameter.
+  const double beta = 0.1;
+
+  for (const PdControllerConstraintSpecs<T>& info :
+       this->pd_controller_specs_) {
+    const JointActuator<T>& actuator =
+        plant().get_joint_actuator(info.actuator_index);
+    const Joint<T>& joint = actuator.joint();
+    const double effort_limit = actuator.effort_limit();
+    DRAKE_DEMAND(effort_limit > 0.0);
+    const T& qd = desired_state[actuator.index()];
+    const T& vd = desired_state[num_actuators + actuator.index()];
+    const T& u0 = feed_forward_actuation[info.actuator_index];
+
+    const int dof = joint.velocity_start();
+    const TreeIndex tree = tree_topology().velocity_to_tree_index(dof);
+    const int tree_dof = dof - tree_topology().tree_velocities_start(tree);
+
+    // Set constraint impulse limits so that feed forward actuation plus PD
+    // controller actuation is withing limits.
+    const T gamma_lower = -(u0 + effort_limit) * plant().time_step();
+    const T gamma_upper = (effort_limit - u0) * plant().time_step();
+
+    // Controller gains.
+    // TODO(amcastro-tri): consider getting these from the actuator?
+    const T& Kp = info.proportional_gain;
+    const T& Kd = info.derivative_gain;
+
+    typename SapHolonomicConstraint<T>::Parameters parameters{
+        Vector1<T>(gamma_lower), Vector1<T>(gamma_upper), Vector1<T>(Kp),
+        Vector1<T>(Kd / Kp), beta};
+
+    const int nv = tree_topology().num_tree_velocities(tree);
+
+    // Constraint function defined as g = q - qd with qd the desired position.
+    const Vector1<T> g0(q0[dof] - qd);
+    MatrixX<T> J = MatrixX<T>::Zero(1, nv);
+    const Vector1<T> bias(-vd);
+    J(0, tree_dof) = 1.0;
+    problem->AddConstraint(std::make_unique<SapHolonomicConstraint<T>>(
+        tree, g0, std::move(J), std::move(bias), std::move(parameters)));
+  }
+}
+
+template <typename T>
 void CompliantContactManager<T>::CalcContactProblemCache(
     const systems::Context<T>& context, ContactProblemCache<T>* cache) const {
   SapContactProblem<T>& problem = *cache->sap_problem;
@@ -891,6 +1020,8 @@ void CompliantContactManager<T>::CalcContactProblemCache(
   // Do not change this order here!
   cache->R_WC = AddContactConstraints(context, &problem);
   AddLimitConstraints(context, problem.v_star(), &problem);
+  AddCouplerConstraints(context, &problem);
+  AddPdControllerConstraints(context, &problem);
 }
 
 template <typename T>
@@ -937,6 +1068,17 @@ void CompliantContactManager<T>::ExtractModelInfo() {
     const int velocity_start = joint.velocity_start();
     const int nv = joint.num_velocities();
     joint_damping_.segment(velocity_start, nv) = joint.damping_vector();
+  }
+
+  // Extract specs for PD controllers, modeled as constraints.
+  for (JointActuatorIndex a(0); a < plant().num_actuators(); ++a) {
+    const JointActuator<T>& actuator = plant().get_joint_actuator(a);
+    if (actuator.has_controller()) {
+      const typename JointActuator<T>::PdControllerGains& gains =
+          actuator.get_controller_gains();
+      pd_controller_specs_.push_back(PdControllerConstraintSpecs<T>{
+          a, gains.proportional_gain, gains.derivative_gain});
+    }
   }
 }
 
