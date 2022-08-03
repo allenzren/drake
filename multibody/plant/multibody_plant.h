@@ -21,6 +21,7 @@
 #include "drake/math/rigid_transform.h"
 #include "drake/multibody/contact_solvers/contact_solver.h"
 #include "drake/multibody/contact_solvers/contact_solver_results.h"
+#include "drake/multibody/plant/constraint_specs.h"
 #include "drake/multibody/plant/contact_jacobians.h"
 #include "drake/multibody/plant/contact_results.h"
 #include "drake/multibody/plant/coulomb_friction.h"
@@ -1200,7 +1201,7 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
   /// Returns the total number of constraints specified by the user.
   int num_constraints() const { return coupler_constraints_specs_.size(); }
 
-  /// Defines a holonomic constraint between two single-dof constraints `joint0`
+  /// Defines a holonomic constraint between two single-dof joints `joint0`
   /// and `joint1` with positions q₀ and q₁, respectively, such that q₀ = ρ⋅q₁ +
   /// Δq, where ρ is the gear ratio and Δq is a fixed offset. The gear ratio
   /// can have units if the units of q₀ and q₁ are different. For instance,
@@ -5139,6 +5140,9 @@ class MultibodyPlant : public internal::MultibodyTreeSystem<T> {
 
   // (Experimental) The vector of physical models owned by MultibodyPlant.
   std::vector<std::unique_ptr<internal::PhysicalModel<T>>> physical_models_;
+
+  // Vector of coupler constraints specifications.
+  std::vector<internal::CouplerConstraintSpecs<T>> coupler_constraints_specs_;
 
   // All MultibodyPlant cache indexes are stored in cache_indexes_.
   CacheIndexes cache_indexes_;
