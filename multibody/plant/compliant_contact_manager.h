@@ -153,7 +153,15 @@ class CompliantContactManager final
     sap_parameters_ = parameters;
   }
 
+  bool is_cloneable_to_double() const final { return true; }
+  bool is_cloneable_to_autodiff() const final { return true; }
+
  private:
+  // Allow different specializations to access each other's private data for
+  // scalar conversion.
+  template <typename U>
+  friend class CompliantContactManager;
+
   // Allow different specializations to access each other's private data for
   // scalar conversion.
   template <typename U>
@@ -166,16 +174,10 @@ class CompliantContactManager final
     return internal::GetInternalTree(this->plant()).get_topology();
   }
 
-  bool is_cloneable_to_autodiff() const final { return true; }
-
+  std::unique_ptr<DiscreteUpdateManager<double>> CloneToDouble()
+      const final;
   std::unique_ptr<DiscreteUpdateManager<AutoDiffXd>> CloneToAutoDiffXd()
-      const final {
-    auto clone = std::make_unique<CompliantContactManager<AutoDiffXd>>();
-    clone->sap_parameters_ = this->sap_parameters_;
-    clone->joint_damping_ = this->joint_damping_;
-    clone->cache_indexes_ = this->cache_indexes_;
-    return clone;
-  }
+      const final;
 
   // Extracts non state dependent model information from MultibodyPlant. See
   // DiscreteUpdateManager for details.
@@ -340,6 +342,12 @@ class CompliantContactManager final
   // @pre problem must not be nullptr.
   void AddLimitConstraints(
       const systems::Context<T>& context, const VectorX<T>& v_star,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
+  // Adds holonomic constraints to model couplers specified in the
+  // MultibodyPlant.
+  void AddCouplerConstraints(
+      const systems::Context<T>& context,
       contact_solvers::internal::SapContactProblem<T>* problem) const;
 
   // This method takes SAP results for a given `problem` and loads forces due to

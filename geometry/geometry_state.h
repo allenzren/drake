@@ -500,6 +500,16 @@ class GeometryState {
         representation, kinematics_data_.X_WGs, surfaces, point_pairs);
   }
 
+  /** Implementation of QueryObject::ComputeDeformableRigidContact().  */
+  template <typename T1 = T>
+  typename std::enable_if_t<std::is_same_v<T1, double>, void>
+  ComputeDeformableRigidContact(
+      std::vector<internal::DeformableRigidContact<T>>*
+          deformable_rigid_contact) const {
+    return geometry_engine_->ComputeDeformableRigidContact(
+        deformable_rigid_contact);
+  }
+
   /** Implementation of QueryObject::FindCollisionCandidates().  */
   std::vector<SortedPair<GeometryId>> FindCollisionCandidates() const {
     return geometry_engine_->FindCollisionCandidates();
@@ -743,6 +753,14 @@ class GeometryState {
   // Method that updates the proximity engine and the render engines with the
   // up-to-date _pose_ data in `kinematics_data`.
   void FinalizePoseUpdate(
+      const internal::KinematicsData<T>& kinematics_data,
+      internal::ProximityEngine<T>* proximity_engine,
+      std::vector<render::RenderEngine*> render_engines) const;
+
+  // Method that updates the proximity engine and the render engines with the
+  // up-to-date _configuration_ data in `kinematics_data`. Currently, nothing is
+  // propagated to the render engines yet.
+  void FinalizeConfigurationUpdate(
       const internal::KinematicsData<T>& kinematics_data,
       internal::ProximityEngine<T>* proximity_engine,
       std::vector<render::RenderEngine*> render_engines) const;

@@ -7,6 +7,7 @@ load(
     "drake_cc_package_library",
 )
 load("//tools/lint:lint.bzl", "add_lint_tests")
+load("//tools/skylark:test_tags.bzl", "vtk_test_tags")
 
 # TODO(jwnimmer-tri) Replace with "//visibility:private" once dev code is gone.
 _VISIBILITY = [
@@ -17,9 +18,24 @@ package(default_visibility = _VISIBILITY)
 
 drake_cc_package_library(
     name = "render_gltf_client",
-    visibility = ["//visibility:public"],
+    # TODO(jwnimmer-tri) Make public once we add libcurl to the wheel builds.
+    visibility = ["//visibility:private"],
     deps = [
+        ":factory",
         ":render_engine_gltf_client_params",
+    ],
+)
+
+drake_cc_library(
+    name = "factory",
+    srcs = ["factory.cc"],
+    hdrs = ["factory.h"],
+    interface_deps = [
+        ":render_engine_gltf_client_params",
+        "//geometry/render:render_camera",
+    ],
+    deps = [
+        ":internal_render_engine_gltf_client",
     ],
 )
 
@@ -86,7 +102,37 @@ drake_cc_library(
     ],
 )
 
+drake_cc_library(
+    name = "internal_render_engine_gltf_client",
+    srcs = [
+        "internal_render_engine_gltf_client.cc",
+    ],
+    hdrs = [
+        "internal_render_engine_gltf_client.h",
+    ],
+    internal = True,
+    visibility = _VISIBILITY,
+    deps = [
+        ":internal_render_client",
+        "//common:filesystem",
+        "//geometry/render:render_camera",
+        "//geometry/render_vtk:internal_render_engine_vtk",
+        "//systems/sensors:image",
+        "@vtk//:vtkIOExport",
+    ],
+)
+
 # === test/ ===
+
+drake_cc_googletest(
+    name = "factory_test",
+    deps = [
+        ":factory",
+        ":internal_render_engine_gltf_client",
+        ":render_engine_gltf_client_params",
+        "//geometry/render:render_camera",
+    ],
+)
 
 drake_cc_googletest(
     name = "render_engine_gltf_client_params_test",
@@ -145,6 +191,21 @@ drake_cc_googletest(
         ":internal_render_client",
         ":internal_sample_image_data",
         "//common:find_resource",
+        "//common/test_utilities:expect_no_throw",
+        "//common/test_utilities:expect_throws_message",
+    ],
+)
+
+drake_cc_googletest(
+    name = "internal_render_engine_gltf_client_test",
+    data = [
+        ":test_resources",
+    ],
+    tags = vtk_test_tags(),
+    deps = [
+        ":internal_render_engine_gltf_client",
+        ":internal_sample_image_data",
+        "//common:filesystem",
         "//common/test_utilities:expect_no_throw",
         "//common/test_utilities:expect_throws_message",
     ],

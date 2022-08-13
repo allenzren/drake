@@ -12,7 +12,8 @@ while some (separate) controller operates the robot, without extra hassle. */
 #include <gflags/gflags.h>
 
 #include "drake/examples/hardware_sim/scenario.h"
-#include "drake/geometry/drake_visualizer.h"
+#include "drake/manipulation/util/apply_driver_configs.h"
+#include "drake/manipulation/util/zero_force_driver_functions.h"
 #include "drake/multibody/parsing/process_model_directives.h"
 #include "drake/multibody/plant/multibody_plant.h"
 #include "drake/multibody/plant/multibody_plant_config_functions.h"
@@ -20,12 +21,13 @@ while some (separate) controller operates the robot, without extra hassle. */
 #include "drake/systems/analysis/simulator_config_functions.h"
 #include "drake/systems/framework/diagram_builder.h"
 #include "drake/systems/lcm/lcm_config_functions.h"
+#include "drake/visualization/visualization_config_functions.h"
 
 DEFINE_string(scenario_file, "",
     "Scenario filename, e.g., "
     "drake/examples/hardware_sim/example_scenarios.yaml");
 DEFINE_string(scenario_name, "",
-    "Scenario name within the scenario_file, e.g., Homecart in the "
+    "Scenario name within the scenario_file, e.g., Demo in the "
     "example_scenarios.yaml; scenario names appears as the keys of the "
     "YAML document's top-level mapping item");
 DEFINE_string(scenario_text, "{}",
@@ -35,10 +37,9 @@ DEFINE_string(scenario_text, "{}",
 namespace drake {
 namespace {
 
-using geometry::DrakeVisualizer;
-using geometry::DrakeVisualizerParams;
 using lcm::DrakeLcmInterface;
 using multibody::ModelInstanceIndex;
+using multibody::parsing::ModelInstanceInfo;
 using multibody::parsing::ProcessModelDirectives;
 using systems::ApplySimulatorConfig;
 using systems::Diagram;
@@ -46,6 +47,7 @@ using systems::DiagramBuilder;
 using systems::Simulator;
 using systems::lcm::ApplyLcmBusConfig;
 using systems::lcm::LcmBuses;
+using visualization::ApplyVisualizationConfig;
 
 /* Class that holds the configuration and data of a simulation. */
 class Simulation {
@@ -75,42 +77,31 @@ void Simulation::Setup() {
       AddMultibodyPlant(scenario_.plant_config, &builder);
 
   // Add model directives.
-  ProcessModelDirectives({scenario_.directives}, &sim_plant);
+  std::vector<ModelInstanceInfo> added_models;
+  ProcessModelDirectives({scenario_.directives}, &sim_plant, &added_models);
+
+  // Now the plant is complete.
+  sim_plant.Finalize();
 
   // Add LCM buses. (The simulator will handle polling the network for new
   // messages and dispatching them to the receivers, i.e., "pump" the bus.)
   const LcmBuses lcm_buses = ApplyLcmBusConfig(scenario_.lcm_buses, &builder);
 
-  // Now the plant is complete.
-  sim_plant.Finalize();
+  // Add actuation inputs.
+  ApplyDriverConfigs(scenario_.model_drivers, sim_plant, added_models,
+                     lcm_buses, &builder);
 
-  // Add visualizer(s).
-  // TODO(jwnimmer-tri) Sugar for this.
-  DrakeLcmInterface* lcm = lcm_buses.Find("hardware_sim visualizer", "default");
-  DrakeVisualizer<double>::AddToBuilder(&builder, scene_graph, lcm);
-  DrakeVisualizerParams params{.role = geometry::Role::kProximity,
-                               .default_color = {1.0, 0.0, 0.0, 0.5},
-                               .use_role_channel_suffix = true};
-  DrakeVisualizer<double>::AddToBuilder(&builder, scene_graph, lcm, params);
+  // Add visualization.
+  ApplyVisualizationConfig(scenario_.visualization, &builder, &lcm_buses);
 
   // Build the diagram and its simulator.
   diagram_ = builder.Build();
   simulator_ = std::make_unique<Simulator<double>>(*diagram_);
-  ApplySimulatorConfig(simulator_.get(), scenario_.simulator_config);
+  ApplySimulatorConfig(scenario_.simulator_config, simulator_.get());
 
   // Sample the random elements of the context.
   RandomGenerator random(scenario_.random_seed);
   diagram_->SetRandomContext(&simulator_->get_mutable_context(), &random);
-
-  // TODO(jwnimmer-tri) Until we add driver stacks to the scenario, we need to
-  // placate MbP's requirement for actuation input.
-  for (ModelInstanceIndex i{0}; i < sim_plant.num_model_instances(); ++i) {
-    auto& input_port = sim_plant.get_actuation_input_port(i);
-    const int size = input_port.size();
-    auto& plant_context = sim_plant.GetMyMutableContextFromRoot(
-        &simulator_->get_mutable_context());
-    input_port.FixValue(&plant_context, Eigen::VectorXd::Zero(size));
-  }
 }
 
 void Simulation::Simulate() {

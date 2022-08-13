@@ -7,6 +7,8 @@ from pydrake.common import (
 )
 from pydrake.geometry import (
     DrakeVisualizer,
+    DrakeVisualizerParams,
+    Role,
 )
 from pydrake.multibody.parsing import (
     Parser,
@@ -25,6 +27,17 @@ from pydrake.systems.framework import (
 
 class TestMeldis(unittest.TestCase):
 
+    def _make_diagram(self, *, sdf_filename, visualizer_params, lcm):
+        builder = DiagramBuilder()
+        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
+        parser = Parser(plant=plant)
+        parser.AddModelFromFile(FindResourceOrThrow(sdf_filename))
+        plant.Finalize()
+        DrakeVisualizer.AddToBuilder(builder=builder, scene_graph=scene_graph,
+                                     params=visualizer_params, lcm=lcm)
+        diagram = builder.Build()
+        return diagram
+
     def test_viewer_applet(self):
         """Check that _ViewerApplet doesn't crash when receiving messages.
         Note that many geometry types are not yet covered by this test.
@@ -38,16 +51,10 @@ class TestMeldis(unittest.TestCase):
         dut._invoke_poll()
 
         # Enqueue the load + draw messages.
-        sdf_file = FindResourceOrThrow(
-            "drake/multibody/benchmarks/acrobot/acrobot.sdf")
-        builder = DiagramBuilder()
-        plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
-        parser = Parser(plant=plant)
-        parser.AddModelFromFile(sdf_file)
-        plant.Finalize()
-        DrakeVisualizer.AddToBuilder(builder=builder, scene_graph=scene_graph,
-                                     lcm=lcm)
-        diagram = builder.Build()
+        diagram = self._make_diagram(
+            sdf_filename="drake/multibody/benchmarks/acrobot/acrobot.sdf",
+            visualizer_params=DrakeVisualizerParams(),
+            lcm=lcm)
         context = diagram.CreateDefaultContext()
         diagram.Publish(context)
 
@@ -61,6 +68,24 @@ class TestMeldis(unittest.TestCase):
         dut._invoke_subscriptions()
         self.assertEqual(meshcat.HasPath("/DRAKE_VIEWER"), True)
         self.assertEqual(meshcat.HasPath(link_path), True)
+
+    def test_hydroelastic_geometry(self):
+        """Check that _ViewerApplet doesn't crash when receiving
+        hydroelastic geometry.
+        """
+        dut = mut.Meldis()
+        lcm = dut._lcm
+        diagram = self._make_diagram(
+            sdf_filename="drake/examples/hydroelastic/"
+                         "spatula_slip_control/models/spatula.sdf",
+            visualizer_params=DrakeVisualizerParams(
+                show_hydroelastic=True,
+                role=Role.kProximity),
+            lcm=lcm)
+        context = diagram.CreateDefaultContext()
+        diagram.Publish(context)
+        lcm.HandleSubscriptions(timeout_millis=0)
+        dut._invoke_subscriptions()
 
     def test_contact_applet_point_pair(self):
         """Check that _ContactApplet doesn't crash when receiving point
@@ -103,6 +128,7 @@ class TestMeldis(unittest.TestCase):
         # Process the load + draw; make sure the geometry exists now.
         lcm.HandleSubscriptions(timeout_millis=0)
         dut._invoke_subscriptions()
+
         self.assertEqual(meshcat.HasPath(pair_path), True)
 
     def test_contact_applet_hydroelastic(self):
@@ -124,10 +150,10 @@ class TestMeldis(unittest.TestCase):
         body1 = plant.GetBodyByName("body1")
         body2 = plant.GetBodyByName("body2")
         plant.AddJoint(PrismaticJoint(
-            name="sphere1", frame_on_parent=plant.world_body().body_frame(),
-            frame_on_child=body1.body_frame(), axis=[1, 0, 0]))
+            name="body1", frame_on_parent=plant.world_body().body_frame(),
+            frame_on_child=body1.body_frame(), axis=[0, 0, 1]))
         plant.AddJoint(PrismaticJoint(
-            name="sphere2", frame_on_parent=plant.world_body().body_frame(),
+            name="body2", frame_on_parent=plant.world_body().body_frame(),
             frame_on_child=body2.body_frame(), axis=[1, 0, 0]))
         plant.Finalize()
         ConnectContactResultsToDrakeVisualizer(
@@ -135,14 +161,22 @@ class TestMeldis(unittest.TestCase):
         diagram = builder.Build()
         context = diagram.CreateDefaultContext()
         plant.SetPositions(plant.GetMyMutableContextFromRoot(context),
-                           [-0.05, 0.1])
+                           [0.1, 0.3])
         diagram.Publish(context)
 
         # The geometry isn't registered until the load is processed.
-        hydro_path = "/CONTACT_RESULTS/hydroelastic/body1+body2"
+        hydro_path = "/CONTACT_RESULTS/hydroelastic/" + \
+                     "body1.two_bodies::body1_collision+body2"
+        hydro_path2 = "/CONTACT_RESULTS/hydroelastic/" + \
+                      "body1.two_bodies::body1_collision2+body2"
         self.assertEqual(meshcat.HasPath(hydro_path), False)
+        self.assertEqual(meshcat.HasPath(hydro_path2), False)
 
         # Process the load + draw; contact results should now exist.
-        lcm.HandleSubscriptions(timeout_millis=0)
+        lcm.HandleSubscriptions(timeout_millis=1)
         dut._invoke_subscriptions()
+
+        self.assertEqual(meshcat.HasPath("/CONTACT_RESULTS/hydroelastic"),
+                         True)
         self.assertEqual(meshcat.HasPath(hydro_path), True)
+        self.assertEqual(meshcat.HasPath(hydro_path2), True)
