@@ -669,9 +669,17 @@ void DoScalarDependentDefinitions(py::module m, T) {
         .def("set_actuation_vector", &Class::set_actuation_vector,
             py::arg("u_instance"), py::arg("u"),
             cls_doc.set_actuation_vector.doc)
+        .def("set_controller_gains", &Class::set_controller_gains,
+            py::arg("gains"), cls_doc.set_controller_gains.doc)
         .def("input_start", &Class::input_start, cls_doc.input_start.doc)
         .def("num_inputs", &Class::num_inputs, cls_doc.num_inputs.doc)
         .def("effort_limit", &Class::effort_limit, cls_doc.effort_limit.doc);
+
+    using GainsClass = typename Class::PdControllerGains;
+    py::class_<GainsClass>(cls, "PdControllerGains", cls_doc.PdControllerGains.doc)
+        .def(ParamInit<GainsClass>())
+        .def_readwrite("proportional_gain", &GainsClass::proportional_gain, cls_doc.PdControllerGains.proportional_gain.doc)
+        .def_readwrite("derivative_gain", &GainsClass::derivative_gain, cls_doc.PdControllerGains.derivative_gain.doc);
   }
 
   // Force Elements.

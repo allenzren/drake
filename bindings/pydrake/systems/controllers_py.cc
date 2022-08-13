@@ -72,7 +72,15 @@ PYBIND11_MODULE(controllers, m) {
           py::arg("plant"), py::arg("mode"), doc.InverseDynamics.ctor.doc)
       .def("is_pure_gravity_compensation",
           &InverseDynamics<double>::is_pure_gravity_compensation,
-          doc.InverseDynamics.is_pure_gravity_compensation.doc);
+          doc.InverseDynamics.is_pure_gravity_compensation.doc)
+      .def("get_input_port_estimated_state",
+          &InverseDynamics<double>::get_input_port_estimated_state,
+          py_rvp::reference_internal,
+          doc.InverseDynamics.get_input_port_estimated_state.doc)
+      .def("get_output_port_force",
+          &InverseDynamics<double>::get_output_port_force,
+          py_rvp::reference_internal,
+          doc.InverseDynamics.get_output_port_force.doc);
 
   py::enum_<InverseDynamics<double>::InverseDynamicsMode>(  // BR
       idyn, "InverseDynamicsMode")
