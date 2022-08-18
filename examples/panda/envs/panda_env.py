@@ -36,9 +36,6 @@ class PandaEnv(ABC):
             self.flag_actuate_hand = False
         self.diff_ik_filter_hz = diff_ik_filter_hz
         self.contact_solver = contact_solver
-
-        # Flag for whether setup is built
-        self.flag_setup = False
         self.table_offset = 0.057
 
 
@@ -54,7 +51,6 @@ class PandaEnv(ABC):
         """
         Set up Panda environment in Drake. Need to load all objects here due to design of Drake.
         """
-
         # Load panda and Drake basics
         builder = DiagramBuilder()
         system = PandaStation(dt=self.dt, 
@@ -80,7 +76,7 @@ class PandaEnv(ABC):
         self.table_body = self.plant.get_body(table_body_index)
 
         # Load objects - child - more like a template to be modified
-        self.load_objects()
+        self.load_objects(task)
 
         # Finalize, get controllers
         self.plant.Finalize()
@@ -138,9 +134,8 @@ class PandaEnv(ABC):
         else:
             self.task = task
 
-        if not self.flag_setup:
-            self._setup(task)
-            self.flag_setup = True
+        # ALways rebuild
+        self._setup(task)
 
         # Move arm away
         context = self.simulator.get_mutable_context()

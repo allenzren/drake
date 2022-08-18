@@ -1,4 +1,5 @@
 import numpy as np
+import os
 
 from pydrake.all import RotationMatrix, RollPitchYaw, PiecewisePolynomial, RigidTransform, FixedOffsetFrame, CollisionFilterDeclaration
 import scipy.interpolate
@@ -50,7 +51,7 @@ class ScoopEnv(PandaEnv):
         return NotImplementedError
 
 
-    def load_objects(self, ):
+    def load_objects(self, task=None):
         # Load spatula
         self.spatula_model_index, self.spatula_body_index = \
             self.station.AddModelFromFile(
@@ -63,13 +64,20 @@ class ScoopEnv(PandaEnv):
         self.spatula_grasp_frame = self.plant.GetFrameByName("spatula_grasp_frame", self.spatula_model_index)
         self.spatula_tip_frame = self.plant.GetFrameByName("spatula_tip_frame", self.spatula_model_index)
 
+        # Locate veggie path
+        if task is None:
+            veggie_path = '/examples/panda/data/veggie_2link.sdf'
+        else:
+            sdf_split = task['sdf'].split('/')
+            veggie_path = os.path.join('/examples/panda/data', os.path.join(sdf_split[-2], sdf_split[-1]))
+
         # Load veggie template with fixed number of links (bodies to be replaced later) - save body and frame ids
         self.veggie_body_all = {}   # list of lists, in the order of links
         self.veggie_frame_all = {}
         for ind in range(self.task.obj_num):
             veggie_model_index, veggie_body_indice = \
                 self.station.AddModelFromFile(
-                    '/examples/panda/data/veggie_2link.sdf',
+                    veggie_path,
                     name='veggie'+str(ind),
                 )
             self.veggie_body_all[ind] = [self.plant.get_body(index) for index in veggie_body_indice]    # all links
@@ -99,76 +107,32 @@ class ScoopEnv(PandaEnv):
         context_inspector = query_object.inspector()
 
         # Set veggie geometry - bodies is a list of bodies for one piece
-        if not self.visualize_contact:
-            sdf_cfg = task.sdf_cfg
-            sg_geometry_ids = context_inspector.GetAllGeometryIds()
-            for _, bodies in self.veggie_body_all.items():
-                for body_ind, body in enumerate(bodies):
-        
-                    # Get frame id  #? better way? - quit if not found in sg
-                    old_geom_id = self.plant.GetCollisionGeometriesForBody(body)[0]
-                    if old_geom_id not in sg_geometry_ids:
-                        raise "Error: plant geometry id not found in scene graph, likely an issue with swapping geometry ids!"
-                    frame_id = context_inspector.GetFrameId(old_geom_id)
+        sdf_cfg = task.sdf_cfg
+        sg_geometry_ids = context_inspector.GetAllGeometryIds()
+        for _, bodies in self.veggie_body_all.items():
+            for body_ind, body in enumerate(bodies):
+                body_str = str(body_ind)
 
-                    # Replace body - this does not change the body mass/inertia
-                    if 'link' + str(body_ind) not in sdf_cfg:
-                        geom_type = None # flag for no link
-                        x_dim, y_dim, z_dim, x, y, z, roll, pitch, yaw = 0, 0, 0, 0, 0, 0, 0, 0, 0
-                    else:
-                        body_str = str(body_ind)
-                        geom_type = sdf_cfg['link'+body_str]
-                        x_dim = sdf_cfg['x'+body_str]
-                        y_dim = sdf_cfg['y'+body_str]
-                        z_dim = sdf_cfg['z'+body_str]
-                        if body_ind == 0:
-                            x, y, z, roll, pitch, yaw = 0, 0, 0, 0, 0, 0
-                        else:
-                            x = sdf_cfg['x0'+body_str]
-                            y = sdf_cfg['y0'+body_str]
-                            z = sdf_cfg['z0'+body_str]
-                            roll = sdf_cfg['roll0'+body_str]
-                            pitch = sdf_cfg['pitch0'+body_str]
-                            yaw = sdf_cfg['yaw0'+body_str]
-                    flag_replace = self.replace_body(context=sg_context,
-                                    context_inspector=context_inspector,
-                                    body=body,
-                                    frame_id=frame_id,
-                                    geom_type=geom_type,
-                                    x_dim=x_dim,
-                                    y_dim=y_dim,
-                                    z_dim=z_dim,
-                                    x=x,
-                                    y=y,
-                                    z=z,
-                                    roll=roll,
-                                    pitch=pitch,
-                                    yaw=yaw,
-                                    visual_name='link'+body_str+'_visual',
-                                    collision_name='link'+body_str+'_collision',
-                                    )
+                # Change body dynamics
+                self.set_obj_dynamics(context_inspector, 
+                        sg_context,
+                        body,
+                        hc_dissipation=self.veggie_hc_dissipation,
+                        sap_dissipation=0.1,
+                        mu=self.task.obj_mu,
+                        hydro_modulus=self.task.obj_modulus,
+                        hydro_resolution=self.veggie_hydro_resolution,
+                        compliance_type='compliant',
+                        )
 
-                    # Change body dynamics - if new geometry is added
-                    if flag_replace:
-                        self.set_obj_dynamics(context_inspector, 
-                                sg_context,
-                                body,
-                                hc_dissipation=self.veggie_hc_dissipation,
-                                sap_dissipation=0.1,
-                                mu=self.task.obj_mu,
-                                hydro_modulus=self.task.obj_modulus,
-                                hydro_resolution=self.veggie_hydro_resolution,
-                                compliance_type='compliant',
-                                )
+                # Change mass - not using, specified in sdf
+                body.SetMass(plant_context, sdf_cfg['m'+body_str])
 
-                        # Change mass - not using, specified in sdf
-                        body.SetMass(plant_context, sdf_cfg['m'+body_str])
-
-                # Exclude collision within body - use contac
-                body_geometry_set = self.plant.CollectRegisteredGeometries(bodies)
-                self.sg.collision_filter_manager(sg_context).Apply(
-                    CollisionFilterDeclaration().ExcludeWithin(body_geometry_set)
-                )
+            # Exclude collision within body - use contac
+            body_geometry_set = self.plant.CollectRegisteredGeometries(bodies)
+            self.sg.collision_filter_manager(sg_context).Apply(
+                CollisionFilterDeclaration().ExcludeWithin(body_geometry_set)
+            )
 
         # Set table properties
         self.set_obj_dynamics(context_inspector, 

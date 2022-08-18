@@ -6,7 +6,7 @@ from envs.scoop_env import ScoopEnv
 
 
 if __name__ == '__main__':
-    # Load tasks
+    # Load tasks - 100 of different ones
     dataset = FindResourceOrThrow("drake/examples/panda/data/cylinder_ellipsoid_tasks.pkl")
     print("= Loading tasks from", dataset)
     with open(dataset, 'rb') as f:
@@ -22,7 +22,7 @@ if __name__ == '__main__':
                    contact_solver='sap',
                    panda_joint_damping=1.0,
                   )
-    for ind in range(1, 10):
+    for ind in range(1, 100):
         task = task_all[ind]
         print('')
         print('Resetting...')
