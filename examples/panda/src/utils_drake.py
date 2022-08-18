@@ -1,6 +1,6 @@
 import numpy as np
 from pydrake.all import (
-        RigidTransform, RotationMatrix, GeometryInstance, Cylinder, MakePhongIllustrationProperties, PiecewisePose, ProximityProperties, CoulombFriction, RoleAssign, AddCompliantHydroelasticProperties, AddRigidHydroelasticProperties
+        RigidTransform, RotationMatrix, GeometryInstance, Cylinder, MakePhongIllustrationProperties, PiecewisePose, CoulombFriction, RoleAssign, AddCompliantHydroelasticProperties, AddRigidHydroelasticProperties
         )
 
 

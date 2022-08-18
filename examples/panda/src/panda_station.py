@@ -1,5 +1,4 @@
 import numpy as np
-from pathlib import Path
 
 import pydrake
 from pydrake.all import (
@@ -7,7 +6,7 @@ from pydrake.all import (
         DiagramBuilder, Diagram, MultibodyPlant, 
         Demultiplexer, InverseDynamicsController, Adder, 
         PassThrough, StateInterpolatorWithDiscreteDerivative, RigidTransform, 
-        RollPitchYaw, Integrator, SchunkWsgPositionController, 
+        Integrator, SchunkWsgPositionController, 
         MakeMultibodyStateToWsgStateSystem,
         DrakeVisualizer, ConnectContactResultsToDrakeVisualizer, 
         FixedOffsetFrame, MultibodyPlantConfig, AddMultibodyPlant, 
