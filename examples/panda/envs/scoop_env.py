@@ -36,16 +36,6 @@ class ScoopEnv(PandaEnv):
         self.veggie_hc_dissipation = 1.0
         self.veggie_hydro_resolution = 0.005
 
-        # Default tasks
-        # self.task.obj_num = 1
-        # self.task.sdf = home_path + \
-        #     '/data/drake/models/veggies/sample_ellipsoid.sdf'
-        # self.task.obj_mu = 0.4
-        # self.task.obj_modulus = 5
-        # self.task.obj_x = [0.70, 0.68, 0.68]
-        # self.task.obj_y = [0, -0.02, 0.02]
-        # self.task.obj_z = [0.01, 0.02, 0.03]
-
 
     def reset_task(self, task):
         return NotImplementedError
@@ -74,7 +64,7 @@ class ScoopEnv(PandaEnv):
         # Load veggie template with fixed number of links (bodies to be replaced later) - save body and frame ids
         self.veggie_body_all = {}   # list of lists, in the order of links
         self.veggie_frame_all = {}
-        for ind in range(self.task.obj_num):
+        for ind in range(self.task['obj_num']):
             veggie_model_index, veggie_body_indice = \
                 self.station.AddModelFromFile(
                     veggie_path,
@@ -107,7 +97,7 @@ class ScoopEnv(PandaEnv):
         context_inspector = query_object.inspector()
 
         # Set veggie geometry - bodies is a list of bodies for one piece
-        sdf_cfg = task.sdf_cfg
+        sdf_cfg = task['sdf_cfg']
         sg_geometry_ids = context_inspector.GetAllGeometryIds()
         for _, bodies in self.veggie_body_all.items():
             for body_ind, body in enumerate(bodies):
@@ -119,8 +109,8 @@ class ScoopEnv(PandaEnv):
                         body,
                         hc_dissipation=self.veggie_hc_dissipation,
                         sap_dissipation=0.1,
-                        mu=self.task.obj_mu,
-                        hydro_modulus=self.task.obj_modulus,
+                        mu=self.task['obj_mu'],
+                        hydro_modulus=self.task['obj_modulus'],
                         hydro_resolution=self.veggie_hydro_resolution,
                         compliance_type='compliant',
                         )
@@ -158,9 +148,9 @@ class ScoopEnv(PandaEnv):
         # Set veggie pose from task
         for ind, veggie_base in enumerate(self.veggie_base_all):
             self.set_body_pose(veggie_base, plant_context, 
-                                p=[task.obj_x[ind],
-                                   task.obj_y[ind],
-                                   task.obj_z[ind]+self.table_offset,
+                                p=[task['obj_x'][ind],
+                                   task['obj_y'][ind],
+                                   task['obj_z'][ind]+self.table_offset,
                                    ],
                                 rpy=[0, 0, 0])
             self.set_body_vel(veggie_base, plant_context)
@@ -330,7 +320,7 @@ class ScoopEnv(PandaEnv):
             # .translation() - self.table_offset
             # veggie_vel = self.plant.EvalBodySpatialVelocityInWorld(plant_context, veggie_body).translational()
             if blade_veggie.translation()[2] > 0.001:
-                reward += 1/self.task.obj_num
+                reward += 1/self.task['obj_num']
             # info['obj_loc'] += list(veggie_pos[:2])
         info['reward'] = reward
 

@@ -1,8 +1,6 @@
 from abc import ABC
 import numpy as np
 
-from pydrake.all import RigidTransform
-
 from envs.panda_env import PandaEnv
 
 
@@ -40,13 +38,13 @@ class PushEnv(PandaEnv, ABC):
 
     @property
     def parameter(self):
-        return [self.task.obj_mu, 
-                self.task.obj_modulus, 
-                self.task.obj_com_x,
-                self.task.obj_com_y]
+        return [self.task['obj_mu'], 
+                self.task['obj_modulus'], 
+                self.task['obj_com_x'],
+                self.task['obj_com_y']]
 
 
-    def load_objects(self, ):
+    def load_objects(self, task=None):
         # Load veggies - more like templates - save body and frame ids
         bottle_model_index, bottle_body_indice = \
             self.station.AddModelFromFile(
