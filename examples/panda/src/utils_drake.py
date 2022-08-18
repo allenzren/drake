@@ -1,4 +1,3 @@
-import os
 import numpy as np
 from pydrake.all import (
         RigidTransform, RotationMatrix, GeometryInstance, Cylinder, MakePhongIllustrationProperties, PiecewisePose, ProximityProperties, CoulombFriction, RoleAssign, AddCompliantHydroelasticProperties, AddRigidHydroelasticProperties
@@ -33,7 +32,7 @@ def set_collision_properties(scene_graph,
     if hc_dissipation is not None:
         add_property(proximity_properties, 'material','hunt_crossley_dissipation', hc_dissipation)
     if sap_dissipation is not None:
-        add_property(proximity_properties, 'material','relaxation_time', sap_dissipation)
+        add_property(proximity_properties, 'material', 'relaxation_time', sap_dissipation)
     if static_friction is not None and dynamic_friction is not None:
         add_property(proximity_properties, 'material', 'coulomb_friction', CoulombFriction(static_friction, dynamic_friction))
     # print(proximity_properties)
@@ -124,18 +123,3 @@ def AddTriad(source_id,
     geom.set_illustration_properties(
         MakePhongIllustrationProperties([0, 0, 1, opacity]))
     scene_graph.RegisterGeometry(source_id, frame_id, geom)
-
-
-def FindResource(filename):
-    return os.path.join(os.path.dirname(__file__), filename)
-
-
-# def AddPackagePaths(parser):
-#     parser.package_map().PopulateFromFolder(FindResource(""))
-#     parser.package_map().Add(
-#         "manipulation_station",
-#         os.path.join(pydrake.common.GetDrakePath(),
-#                      "examples/manipulation_station/models"))
-#     parser.package_map().Add(
-#         "drake_models",
-#         home_path + "/drake/examples/panda/data/models/")

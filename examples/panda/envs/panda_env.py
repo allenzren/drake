@@ -1,12 +1,10 @@
 # Modified from RobotLocomotion Group
 
 from abc import ABC, abstractmethod
-from pathlib import Path
-home_path = str(Path.home())
 from copy import deepcopy
 import numpy as np
 
-from pydrake.all import DiagramBuilder, RigidTransform, RotationMatrix, RollPitchYaw, ContactModel, Simulator, SpatialVelocity, InverseKinematics, Solve, Ellipsoid, Cylinder, Box, GeometryInstance, IllustrationProperties, PerceptionProperties, Rgba, MakePhongIllustrationProperties, Role, RenderLabel
+from pydrake.all import DiagramBuilder, RigidTransform, RotationMatrix, RollPitchYaw, ContactModel, Simulator, SpatialVelocity, InverseKinematics, Solve, Ellipsoid, Cylinder, Box, GeometryInstance, PerceptionProperties, Rgba, MakePhongIllustrationProperties, Role, RenderLabel
 from src.panda_station import PandaStation
 from src.utils_drake import set_collision_properties
 
@@ -14,8 +12,8 @@ from src.utils_drake import set_collision_properties
 class PandaEnv(ABC):
     def __init__(self,
                  dt=0.002,
-                 renders=False,
-                 camera_params=None,
+                 render=False,
+                 camera_param=None,
                  visualize_contact=False,
                  hand_type='wsg',
                  diff_ik_filter_hz=-1,
@@ -23,11 +21,11 @@ class PandaEnv(ABC):
                  panda_joint_damping=200,
                  ):
         self.dt = dt
-        self.renders = renders
+        self.render = render
         self.visualize_contact = visualize_contact
-        self.camera_params = camera_params
+        self.camera_param = camera_param
         self.panda_joint_damping = panda_joint_damping
-        if self.camera_params is not None:
+        if self.camera_param is not None:
             self.flag_use_camera = True
         else:
             self.flag_use_camera = False
@@ -41,6 +39,7 @@ class PandaEnv(ABC):
 
         # Flag for whether setup is built
         self.flag_setup = False
+        self.table_offset = 0.057
 
 
     @property
@@ -60,15 +59,16 @@ class PandaEnv(ABC):
         builder = DiagramBuilder()
         system = PandaStation(dt=self.dt, 
                               visualize_contact=self.visualize_contact,
-                              diff_ik_filter_hz=self.diff_ik_filter_hz,
                               contact_solver=self.contact_solver,
-                              panda_joint_damping=self.panda_joint_damping)
+                              panda_joint_damping=self.panda_joint_damping,
+                              table_offset=self.table_offset,
+                              hand_type=self.hand_type)
         self.station = builder.AddSystem(system)
-        self.hand_body = self.station.set_panda(self.hand_type)
+        self.hand_body = self.station.set_panda()
         # self.station.set_camera(self.camera_params)
         self.plant = self.station.get_multibody_plant()
         self.sg = self.station.get_sg()
-        if self.renders:
+        if self.render:
             self.visualizer = self.station.get_visualizer(use_meshcat=False)
         else:
             self.visualizer = None
@@ -85,7 +85,7 @@ class PandaEnv(ABC):
 
         # Finalize, get controllers
         self.plant.Finalize()
-        self.station.set_arm_controller()
+        self.station.set_arm_controller(diff_ik_filter_hz=self.diff_ik_filter_hz)
         if self.flag_actuate_hand:
             self.station.set_hand_controller()
         self.station.Finalize()
@@ -106,20 +106,24 @@ class PandaEnv(ABC):
         self.reaction_forces_output_port = self.plant.get_reaction_forces_output_port()
         self.table_force_output_port = self.plant.get_generalized_contact_forces_output_port(table_model_index)
         self.panda_force_output_port = self.plant.get_generalized_contact_forces_output_port(self.panda)
+        self.panda_estimated_state_port = self.plant.get_state_output_port(self.panda)
         self.panda_desired_state_port = self.station.GetOutputPort("panda_desired_state")
+        self.integrator_output_port = self.station.GetOutputPort("integrator_output")
         self.ik_result_port = self.station.GetInputPort("ik_result")
         self.V_WG_command_port = self.station.GetInputPort("V_WG_command")
         self.V_J_command_port = self.station.GetInputPort("V_J_command")
         if self.flag_actuate_hand:
             self.hand_force_measure_port = self.station.GetOutputPort("hand_force_measured")
+            self.hand_state_measure_port = self.station.GetOutputPort("hand_state_measured")
             self.hand_position_command_port = self.station.GetInputPort("hand_position_command")
 
         # Set up simulator
         diagram = builder.Build()
-        context = diagram.CreateDefaultContext()  # need to change property before this - but now we have hacks...
-        # context.DisableCaching()
-        diagram.Publish(context)
-        self.simulator = Simulator(diagram, context)
+        self._diagram_context = diagram.CreateDefaultContext()
+        diagram.Publish(self._diagram_context)
+        self.simulator = Simulator(diagram, self._diagram_context)
+        self._diagram_context_init = self._diagram_context.Clone()
+        # self._state_init = self._diagram_context.Clone().get_state()
 
         # Use separate plant for arm controller
         self.panda_c = self.station.get_panda_c()
@@ -157,30 +161,33 @@ class PandaEnv(ABC):
     @abstractmethod
     def step(self):
         """
-        Gym style step function. Apply action, move robot, get observation,
-        calculate reward, check if done.
+        Apply action, move robot, get observation, calculate reward, check if done.
         """
         raise NotImplementedError
 
 
     def seed(self, seed=None):
         """
-        Set the seed of the environment. No torch rn # TODO: drake seed?
+        Set the seed of the environment. No torch rn. # TODO: drake seed?
         """
         self.rng = np.random.default_rng(seed=seed)
         return [seed]
 
 
     def ik(self, 
-           p_e, 
-           R_e, 
            plant_context, 
            controller_plant_context, 
            frame='arm',
+           p_e=None,
+           T_e=None, 
+           R_e=None,
            ):
+        if p_e is not None:
+            T_e = p_e.translation()
+            R_e = p_e.rotation()
         ik = InverseKinematics(self.controller_plant,
                                controller_plant_context,
-                               with_joint_limits=False,  # much faster
+                               with_joint_limits=True,
                                )
         q_cur = self.plant.GetPositions(plant_context)[:7]  # use normal plant to get arm joint angles, since the control plant does not update them
         if frame == 'arm':
@@ -193,7 +200,7 @@ class PandaEnv(ABC):
             raise 'Unknown frame error!'
         ik.AddPositionConstraint(
             ee_frame, [0, 0, 0], self.plant.world_frame(),
-            p_e, p_e)
+            T_e, T_e)
         ik.AddOrientationConstraint(
             ee_frame, RotationMatrix(), self.plant.world_frame(),
             R_e, 0.0)
@@ -204,12 +211,12 @@ class PandaEnv(ABC):
         prog.AddQuadraticErrorCost(np.identity(len(q)), q_cur, q)
         prog.SetInitialGuess(q, q_cur)
         result = Solve(ik.prog())   # sim returns error if this line is called
-        # if not result.is_success():
-            # print("IK failed")
+        if not result.is_success():
+            print("IK failed")
         # print('solver is: ', result.get_solver_id().name())
         qstar_raw = result.GetSolution(q)
         qstar = qstar_raw[:7]
-        # print('IK solution: ', qstar)
+        # print('IK solution: ', repr(qstar))
         return qstar
 
 
@@ -237,6 +244,11 @@ class PandaEnv(ABC):
         return self.plant.GetVelocities(plant_context)[:7]
 
 
+    def get_ee_force_torque(self, plant_context):
+        ee_ft = self.reaction_forces_output_port.Eval(plant_context)[7]
+        return ee_ft.translational(), ee_ft.rotational()
+
+
     def set_arm(self, plant_context, q, qdot=[0]*7):
         self.plant.SetPositions(plant_context, self.panda, q)
         self.plant.SetVelocities(plant_context, self.panda, qdot)
@@ -259,13 +271,20 @@ class PandaEnv(ABC):
                                             plant_context)
 
 
-    def reset_state(self, plant_context, context):
+    def reset_state(self, plant_context, context, set_integrator=True):
         state_integrator_context = self.state_integrator.GetMyMutableContextFromRoot(context)
         state_interpolator_context = self.state_interpolator.GetMyMutableContextFromRoot(context)
-        q = self.plant.GetPositions(plant_context)[:7]
-        self.state_interpolator.set_initial_position(state_interpolator_context, q)  # avoid large derivatives at the beginning
-        self.state_integrator.set_integral_value(
-            state_integrator_context, q)
+        q = self.get_joint_angles(plant_context)
+        dq = self.get_joint_velocities(plant_context)
+        self.state_interpolator.set_initial_state(state_interpolator_context, q, dq)  # avoid large derivatives at the beginning
+        if set_integrator:  # do not set it when using ik result instead of diff ik
+            self.state_integrator.set_integral_value(state_integrator_context, q)
+
+
+    def disable_diff_ik(self, context):
+        """By disabling state integrator"""
+        state_integrator_context = self.state_integrator.GetMyMutableContextFromRoot(context)
+        self.state_integrator.set_integral_value(state_integrator_context, np.zeros((7)))
 
 
     def set_obj_dynamics(self, 
@@ -353,9 +372,9 @@ class PandaEnv(ABC):
         if geom_type == 'ellipsoid':
             visual_shape = Ellipsoid(x_dim, y_dim, z_dim)
         elif geom_type == 'cylinder':
-            visual_shape = Cylinder(x_dim, z_dim)
+            visual_shape = Cylinder(x_dim, z_dim*2)
         elif geom_type == 'box':
-            visual_shape = Box(x_dim, y_dim, z_dim)
+            visual_shape = Box(x_dim*2, y_dim*2, z_dim*2)
         else:
             return 0
         prox_shape = deepcopy(visual_shape)

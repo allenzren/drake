@@ -26,6 +26,26 @@ drake_py_library(
 )
 
 drake_py_library(
+    name = "discrete_filter",
+    srcs = ["src/discrete_filter.py"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+    testonly = True,
+)
+
+drake_py_library(
+    name = "rate_limiter",
+    srcs = ["src/rate_limiter.py"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//bindings/pydrake",
+    ],
+    testonly = True,
+)
+
+drake_py_library(
     name = "scenarios",
     srcs = ["src/scenarios.py"],
     visibility = ["//visibility:private"],
@@ -55,6 +75,8 @@ drake_py_library(
         ":scenarios",
         ":utils_drake",
         ":differential_ik",
+        ":discrete_filter",
+        ":rate_limiter",
     ],
     testonly = True,
 )

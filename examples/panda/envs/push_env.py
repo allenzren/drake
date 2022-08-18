@@ -12,38 +12,38 @@ class PushEnv(PandaEnv, ABC):
     """
     def __init__(self, 
                 dt=0.002,
-                renders=False,
+                render=False,
                 visualize_contact=False,
-                camera_params=None,
+                camera_param=None,
                 hand_type='plate',
-                diff_ik_filter_hz=500,
+                diff_ik_filter_hz=-1,
                 contact_solver='sap',
                 panda_joint_damping=200,
                 ):
         super(PushEnv, self).__init__(
             dt=dt,
-            renders=renders,
+            render=render,
             visualize_contact=visualize_contact,
-            camera_params=camera_params,
+            camera_param=camera_param,
             hand_type=hand_type,
             diff_ik_filter_hz=diff_ik_filter_hz,
             contact_solver=contact_solver,
             panda_joint_damping=panda_joint_damping,
         )
-        self.finger_init_pos = 0.06
-        self.bottle_initial_pos = [0.45, 0.0, 0.05]
-
-        # Set default task
-        self.task = {}
-        self.task['obj_mass'] = 0.2
-        self.task['obj_mu'] = 0.1
-        self.task['obj_modulus'] = 7
-        self.task['obj_com_x'] = 0.0
-        self.task['obj_com_y'] = 0.0
+        self.finger_init_pos = 0.055
+        self.bottle_initial_pos = np.array([0.45, 0.0, 0.05 + self.table_offset])
 
 
     def reset_task(self, task):
         return NotImplementedError
+
+
+    @property
+    def parameter(self):
+        return [self.task.obj_mu, 
+                self.task.obj_modulus, 
+                self.task.obj_com_x,
+                self.task.obj_com_y]
 
 
     def load_objects(self, ):
@@ -51,7 +51,6 @@ class PushEnv(PandaEnv, ABC):
         bottle_model_index, bottle_body_indice = \
             self.station.AddModelFromFile(
                 '/examples/panda/data/bottle.sdf',
-                RigidTransform([0.5, 0, 0.04]),
                 name='bottle',
             )
         self.bottle_body = self.plant.get_body(bottle_body_indice[0])
@@ -117,12 +116,6 @@ class PushEnv(PandaEnv, ABC):
                             p=self.bottle_initial_pos,
                             rpy=[0, 0, 0])
         self.set_body_vel(self.bottle_body, plant_context)
-
-        # Reset bottle
-        self.set_body_pose(self.bottle_body, plant_context, 
-                            p=self.bottle_initial_pos,
-                            rpy=[0, 0, 0])
-        self.set_body_vel(self.bottle_body, plant_context)
         station_context = self.station.GetMyContextFromRoot(context)
         return self._get_obs(station_context)
 
@@ -141,12 +134,12 @@ class PushEnv(PandaEnv, ABC):
         return image
 
 
-    def visualize(self):
-        raise NotImplementedError
-
-
-    def get_bottle_vel(self, plant_context):
+    def _get_bottle_vel(self, plant_context):
         return self.plant.EvalBodySpatialVelocityInWorld(
             plant_context, 
             self.bottle_body,
             ).get_coeffs().reshape(6,1)
+
+
+    def _get_bottle_pose(self, plant_context):
+        return self.plant.EvalBodyPoseInWorld(plant_context, self.bottle_body)

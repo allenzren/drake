@@ -13,7 +13,7 @@
     <visual>
       <origin rpy="1.57079632679 0 0"/>
       <geometry>
-        <mesh filename="/home/allen/data/drake/models/franka_description/meshes/visual/hand.obj"/>
+        <mesh filename="package://drake/examples/panda/data/models/franka_description/meshes/visual/hand.obj"/>
         </geometry>
     </visual>
     <collision>
@@ -50,21 +50,54 @@
     <visual>
       <origin rpy="1.57079632679 0 0"/>
       <geometry>
-        <mesh filename="/home/allen/data/drake/models/franka_description/meshes/visual/finger.obj"/>
+        <mesh filename="package://drake/examples/panda/data/models/franka_description/meshes/visual/finger.obj"/>
       </geometry>
     </visual>
     <collision>
-      <origin rpy="0 0 0" xyz="0 0.007 0.045"/>
+      <origin rpy="0 0 0" xyz="-0.004 0.002 0.040"/>
       <geometry>
-        <sphere radius="0.012"/>
+        <sphere radius="0.003"/>
       </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
     </collision>
     <collision>
-      <origin rpy="0 0 0" xyz="0 0.015 0.03"/>
+      <origin rpy="0 0 0" xyz="0.004 0.002 0.040"/>
       <geometry>
-        <sphere radius="0.012"/>
+        <sphere radius="0.003"/>
       </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
     </collision>
+    <collision>
+      <origin rpy="0 0 0" xyz="-0.004 0.002 0.050"/>
+      <geometry>
+        <sphere radius="0.003"/>
+      </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
+    </collision> 
+    <collision>
+      <origin rpy="0 0 0" xyz="0.004 0.002 0.050"/>
+      <geometry>
+        <sphere radius="0.003"/>
+      </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
+    </collision>
+
   </link>
   <link name="panda_rightfinger">
     <inertial>
@@ -75,36 +108,75 @@
     <visual>
       <origin rpy="1.57079632679 0 3.14159265359" xyz="0 0 0"/>
       <geometry>
-        <mesh filename="/home/allen/data/drake/models/franka_description/meshes/visual/finger.obj"/>
+        <mesh filename="package://drake/examples/panda/data/models/franka_description/meshes/visual/finger.obj"/>
       </geometry>
     </visual>
     <collision>
-      <origin rpy="0 0 0" xyz="0 -0.007 0.045"/>
+      <origin rpy="0 0 0" xyz="-0.004 -0.002 0.040"/>
       <geometry>
-        <sphere radius="0.012"/>
+        <sphere radius="0.003"/>
       </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
+    </collision> 
+    <collision>
+      <origin rpy="0 0 0" xyz="0.004 -0.002 0.040"/>
+      <geometry>
+        <sphere radius="0.003"/>
+      </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
     </collision>
     <collision>
-      <origin rpy="0 0 0" xyz="0 -0.015 0.03"/>
+      <origin rpy="0 0 0" xyz="-0.004 -0.002 0.050"/>
       <geometry>
-        <sphere radius="0.012"/>
+        <sphere radius="0.003"/>
       </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
+    </collision> 
+    <collision>
+      <origin rpy="0 0 0" xyz="0.004 -0.002 0.050"/>
+      <geometry>
+        <sphere radius="0.003"/>
+      </geometry>
+      <drake:proximity_properties>
+        <drake:rigid_hydroelastic/>
+        <drake:mesh_resolution_hint value="0.002"/>
+        <drake:relaxation_time value="0.1"/>
+      </drake:proximity_properties>
     </collision>
   </link>
+
   <joint name="panda_finger_joint1" type="prismatic">
     <parent link="panda_hand"/>
     <child link="panda_leftfinger"/>
     <origin rpy="0 0 0" xyz="0 0 0.0584"/>
-    <axis xyz="0 1 0"/>
-    <limit effort="20" lower="0.0" upper="0.04" velocity="0.2"/>
+    <axis xyz="0 -1 0"/>
+    <limit effort="20" lower="-0.041" upper="0.0" velocity="0.2"
+        drake:acceleration="1.0"/>
+    <dynamics damping="50.0"/>
   </joint>
   <joint name="panda_finger_joint2" type="prismatic">
     <parent link="panda_hand"/>
     <child link="panda_rightfinger"/>
     <origin rpy="0 0 0" xyz="0 0 0.0584"/>
     <axis xyz="0 -1 0"/>
-    <limit effort="20" lower="0.0" upper="0.04" velocity="0.2"/>
-    <mimic joint="panda_finger_joint1"/>
+    <!-- <limit effort="20" lower="0.0" upper="0.041" velocity="0.2"
+        drake:acceleration="1.0"/> -->
+    <limit effort="0" lower="0.0" upper="0.041" velocity="0.2"
+        drake:acceleration="1.0"/>
+    <!-- <mimic joint="panda_finger_joint1"/> -->
+    <dynamics damping="50.0"/>
   </joint>
   <transmission name="panda_finger_tran1">
     <type>transmission_interface/SimpleTransmission</type>
@@ -116,7 +188,7 @@
       <mechanicalReduction>1</mechanicalReduction>
     </actuator>
   </transmission>
-  <transmission name="panda_finger_tran2">
+  <!-- <transmission name="panda_finger_tran2">
     <type>transmission_interface/SimpleTransmission</type>
     <joint name="panda_finger_joint2">
       <hardwareInterface>PositionJointInterface</hardwareInterface>
@@ -125,5 +197,5 @@
       <hardwareInterface>PositionJointInterface</hardwareInterface>
       <mechanicalReduction>1</mechanicalReduction>
     </actuator>
-  </transmission>
+  </transmission> -->
 </robot>

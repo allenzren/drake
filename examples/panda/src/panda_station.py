@@ -1,18 +1,24 @@
 import numpy as np
+from pathlib import Path
 
 import pydrake
+home_path = str(Path.home())
 from pydrake.all import (
         LoadModelDirectives, ProcessModelDirectives, GeometrySet, Parser,
         DiagramBuilder, Diagram, MultibodyPlant, 
         Demultiplexer, InverseDynamicsController, Adder, 
         PassThrough, StateInterpolatorWithDiscreteDerivative, RigidTransform, 
-        RollPitchYaw, RotationMatrix, Integrator, SchunkWsgPositionController, 
-        MakeMultibodyStateToWsgStateSystem, FirstOrderLowPassFilter,
+        RollPitchYaw, Integrator, SchunkWsgPositionController, 
+        MakeMultibodyStateToWsgStateSystem,
         DrakeVisualizer, ConnectContactResultsToDrakeVisualizer, 
-        FixedOffsetFrame, MultibodyPlantConfig, AddMultibodyPlant, FindResourceOrThrow)
+        FixedOffsetFrame, MultibodyPlantConfig, AddMultibodyPlant, 
+        DiscreteContactSolver, FindResourceOrThrow
+        )
 from .differential_ik import PseudoInverseController
-from .scenarios import AddPanda, AddHand
-# from .utils_drake import AddMultibodyTriad, AddPackagePaths
+from .discrete_filter import DiscreteLowPassFilter
+from .rate_limiter import RateLimiter
+from .scenarios import AddPanda, AddHand, AddRgbdSensor
+# from .util import FindResource, AddPackagePaths
 
 
 def deg_to_rad(deg):
@@ -24,15 +30,17 @@ class PandaStation(Diagram):
     def __init__(self, 
                  dt=0.002, 
                  visualize_contact=False,
-                 diff_ik_filter_hz=-1,
                  contact_solver='sap',
                  panda_joint_damping=200,
+                 table_offset=0,
+                 hand_type=None,
                  ):
         Diagram.__init__(self)
         self.dt = dt
         self.visualize_contact = visualize_contact
-        self.diff_ik_filter_hz = diff_ik_filter_hz
         self.panda_joint_damping = panda_joint_damping
+        self.table_offset = table_offset
+        self.hand_type = hand_type
 
         # Initialie builder and plant
         self.builder = DiagramBuilder()
@@ -51,10 +59,14 @@ class PandaStation(Diagram):
         self.controller_plant = self.builder.AddSystem(
                                     MultibodyPlant(time_step=dt)
                                     )
+        if contact_solver == 'sap':
+            self.controller_plant.set_discrete_contact_solver(DiscreteContactSolver.kSap)
+        else:
+            self.controller_plant.set_discrete_contact_solver(DiscreteContactSolver.kTamsi)
 
 
     def set_table(self):
-        directive = FindResourceOrThrow("drake/examples/panda/data/models/table/table_top.yaml")
+        directive = FindResourceOrThrow("drake/examples/panda/data/models/table/table.yaml")
         parser = Parser(self.plant)
         parser.package_map().Add(
             "table",
@@ -63,23 +75,22 @@ class PandaStation(Diagram):
                                             self.plant, 
                                             parser)
         table_model_index = table_info[0].model_instance
-        table_body_index = self.plant.GetBodyIndices(table_model_index)[0]
+        table_body_index = self.plant.GetBodyIndices(table_model_index)[1]  # not base
+
         return table_model_index, table_body_index
 
 
-    def set_panda(self, hand_type='wsg'):
+    def set_panda(self, ):
         self.panda = AddPanda(self.plant,
-                              joint_damping=self.panda_joint_damping)
-        self.hand = AddHand(self.plant, 
-                            panda_model_instance=self.panda, 
-                            roll=0, 
-                            welded=False, 
-                            type=hand_type) # offset between EE and hand, roll:-pi/4
-        hand_body = self.plant.GetBodyByName("gripper_base", self.hand)
+                              joint_damping=self.panda_joint_damping)   # no hand inertia
+        self.hand, hand_body = AddHand(self.plant, 
+                                        panda_model_instance=self.panda, 
+                                        # welded=False, 
+                                        type=self.hand_type)
 
         # self.fix_collisions()
-        ee_frame = self.plant.GetFrameByName("panda_link8", self.panda)
-        hand_frame = self.plant.GetFrameByName("body_frame", self.hand)
+        # ee_frame = self.plant.GetFrameByName("panda_link8", self.panda)
+        # hand_frame = self.plant.GetFrameByName("body_frame", self.hand)
         # AddMultibodyTriad(ee_frame, self.sg, length=.1, radius=0.005)
         # AddMultibodyTriad(hand_frame, self.sg, length=.1, radius=0.005)
 
@@ -147,7 +158,9 @@ class PandaStation(Diagram):
         self.builder.BuildInto(self) 
 
 
-    def set_arm_controller(self):
+    def set_arm_controller(self, 
+                           diff_ik_filter_hz, 
+                           flag_disable_rate_limiter=False):
         # Export panda joint state outputs with demux
         num_panda_positions = self.plant.num_positions(self.panda)
         demux = self.builder.AddSystem(
@@ -160,7 +173,8 @@ class PandaStation(Diagram):
 
         # Initialize plant for the controller
         self.panda_c = AddPanda(self.controller_plant,
-                                joint_damping=self.panda_joint_damping)
+                                joint_damping=self.panda_joint_damping,
+                                hand_type=self.hand_type)
 
         # Set joint acceleration limits - position and velocity limits already specified in SDF
         acc_limit = [15, 7.5, 10, 12.5, 15, 20, 20]
@@ -172,7 +186,7 @@ class PandaStation(Diagram):
                                           [acc_limit[joint_ind-1]])
 
         # Add fixed frame for the point between fingers (for ik), to arm (not hand!)
-        fingertip_frame = self.controller_plant.AddFrame(
+        self.fingertip_frame = self.controller_plant.AddFrame(
                 FixedOffsetFrame(
                     "fingertip_frame", 
                     self.controller_plant.GetFrameByName(
@@ -184,7 +198,7 @@ class PandaStation(Diagram):
 
         # Add arm controller
         # kp = np.array([2000, 1500, 1500, 1500, 1500, 500, 500])*1.5
-        kp = np.array([2000, 2000, 2000, 2000, 2000, 2000, 2000])*2
+        kp = np.array([2000, 2000, 2000, 2000, 2000, 2000, 2000])*1
         kd = 2*np.sqrt(kp)
         ki = np.ones(7)
         self.panda_controller = self.builder.AddSystem(InverseDynamicsController(
@@ -257,9 +271,9 @@ class PandaStation(Diagram):
         #     )
 
         # Optional: pass diff ik output through low pass filter
-        if self.diff_ik_filter_hz > 0:
+        if diff_ik_filter_hz > 0:
             lp_filter = self.builder.AddSystem(
-                FirstOrderLowPassFilter(1/self.diff_ik_filter_hz, 7)
+                DiscreteLowPassFilter(self.dt, diff_ik_filter_hz)
             )
             self.builder.Connect(
                 diff_ik.get_output_port(),
@@ -285,15 +299,49 @@ class PandaStation(Diagram):
             "V_J_command"
             )
 
+        # Rate limiter
+        rate_limiter = self.builder.AddSystem(
+            RateLimiter(self.dt, flag_disable_rate_limiter)
+            )
+        rate_limiter.set_name("RateLimiter")
+        self.builder.Connect(
+            adder_diffik_vj.get_output_port(), 
+            rate_limiter.GetInputPort('qdot_d')
+            )
+        self.builder.Connect(
+                        demux.get_output_port(1),
+                        rate_limiter.GetInputPort("qdot")
+                        )
+
         # Feed to integrator
         self.state_integrator = self.builder.AddSystem(Integrator(7))
         self.state_integrator.set_name("state_integrator")
         self.builder.Connect(
-            adder_diffik_vj.get_output_port(), 
+            rate_limiter.get_output_port(), 
             self.state_integrator.get_input_port()
             )
+        self.builder.ExportOutput(
+            self.state_integrator.get_output_port(),
+            "integrator_output"
+            )
 
-        # Add interpolatorto find velocity command based on positional commands, between DIK and IDC
+        #! Add integrator output and IK input
+        ik_input = self.builder.AddSystem(PassThrough(num_panda_positions))
+        self.builder.ExportInput(
+            ik_input.get_input_port(), 
+            "ik_result"
+            )
+        adder_integrator_ik = self.builder.AddSystem(Adder(2, num_panda_positions))
+        self.builder.Connect(
+            self.state_integrator.get_output_port(),
+            adder_integrator_ik.get_input_port(0)
+            )
+        self.builder.Connect(
+            ik_input.get_output_port(),
+            adder_integrator_ik.get_input_port(1)
+            )
+
+        # Add interpolator to find velocity command based on positional commands, between DIK and IDC
         self.state_interpolator = self.builder.AddSystem(
             StateInterpolatorWithDiscreteDerivative(
                 num_panda_positions, 
@@ -302,48 +350,38 @@ class PandaStation(Diagram):
             )
         self.state_interpolator.set_name("state_interpolator")
         self.builder.Connect(
-            self.state_integrator.get_output_port(), 
+            adder_integrator_ik.get_output_port(), 
             self.state_interpolator.get_input_port()
             )
         self.builder.ExportOutput(
             self.state_interpolator.get_output_port(),
             "panda_desired_state"
             )
-
-        # Add IK result port
-        ik_input = self.builder.AddSystem(PassThrough(2*num_panda_positions))
-        self.builder.ExportInput(
-            ik_input.get_input_port(), 
-            "ik_result"
-            )
-
-        # Add state_interpolator output and ik
-        adder_interp_ik = self.builder.AddSystem(Adder(2, 2*num_panda_positions))
-        self.builder.Connect(
-            self.state_interpolator.get_output_port(),
-            adder_interp_ik.get_input_port(0)
-            )
-        self.builder.Connect(
-            ik_input.get_output_port(),
-            adder_interp_ik.get_input_port(1)
-            )
         
         # Feed to controller
         self.builder.Connect(
-            adder_interp_ik.get_output_port(), 
+            self.state_interpolator.get_output_port(), 
             self.panda_controller.get_input_port_desired_state()
             )
 
 
     def set_hand_controller(self):
         self.hand_controller = self.builder.AddSystem(
-                SchunkWsgPositionController(kp_command=1000, 
-                                            kd_command=5, 
-                                            default_force_limit=80)
+                SchunkWsgPositionController(kp_command=400,    # 400
+                                            kd_command=40,   # 40
+                                            default_force_limit=200)
             )
         self.hand_controller.set_name("hand_controller")
+        demux = self.builder.AddSystem(
+                Demultiplexer(2, 1)
+                )
         self.builder.Connect(
             self.hand_controller.get_generalized_force_output_port(),
+            demux.get_input_port()
+        )
+        self.builder.Connect(
+            demux.get_output_port(0),
+            # self.hand_controller.get_generalized_force_output_port(),
             self.plant.get_actuation_input_port(self.hand)
             )
         self.builder.Connect(
@@ -384,18 +422,13 @@ class PandaStation(Diagram):
 
     ############################## Helper ##############################
 
-    def AddModelFromFile(self, path, X_WO, name=None):
+    def AddModelFromFile(self, path, name=None):
         parser = Parser(self.plant)
         if name is None:
             num = str(len(self.object_ids))
             name = "added_model_" + num
         model_index = parser.AddModelFromFile(path, name)
         indices = self.plant.GetBodyIndices(model_index)
-        # assert len(indices) == 1, "Currently, we only support adding models with one body"
-        # self.body_info.append((path, name, indices[0]))
-        # self.object_ids.append(indices[0])
-        # self.object_poses.append(X_WO)
-        # return model_index, indices[0]
         return model_index, indices
 
 
@@ -428,14 +461,6 @@ class PandaStation(Diagram):
 
 
     ############################## Getter ##############################
-
-    # def get_simulator(self, context):
-    #     from pydrake.all import Simulator
-    #     context = self.diagram.CreateDefaultContext()
-    #     simulator = Simulator(self, context)
-    #     # system = simulator.get_system()
-    #     simulator.Initialize()
-    #     return simulator
 
     def get_panda_position(self, station_context):
         plant_context = self.GetSubsystemContext(self.plant, station_context)

@@ -6,20 +6,23 @@ from envs.scoop_env import ScoopEnv
 
 if __name__ == '__main__':
 
-    dataset = FindResourceOrThrow("drake/examples/panda/data/veggie_cylinder_tasks.pkl")
+    dataset = FindResourceOrThrow("drake/examples/panda/data/cylinder_ellipsoid_tasks.pkl")
     print("= Loading tasks from", dataset)
     with open(dataset, 'rb') as f:
         task_all = pickle.load(f)
 
-    env = ScoopEnv(
-                dt=0.005,
-                renders=True,
-                visualize_contact=False,  # conflict with swapping geometry
-                diff_ik_filter_hz=200,
-                contact_solver='sap',
-                panda_joint_damping=10,    # issue with diff ik
-                )
-    for ind in range(1, 100):
+    env = ScoopEnv(dt=0.005,
+                  render=False,
+                  visualize_contact=False,  # conflict with swapping geometry
+                  hand_type='panda',  # panda_foam
+                  camera_param=None,
+                  diff_ik_filter_hz=200,
+                  contact_solver='sap',
+                  panda_joint_damping=1.0,
+                  flag_tri=True,
+                  flag_disable_rate_limiter=False,
+                  )
+    for ind in range(1, 10):
         task = task_all[ind]
         print('')
         print('Resetting...')

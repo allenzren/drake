@@ -3,14 +3,14 @@
 	<model name="bottle">
 		<link name="link0">
 			<inertial>
-				<mass>0.2</mass>
+				<mass>0.3</mass>
 				<inertia>
-					<ixx>1.05e-4</ixx>
+					<ixx>3.175e-4</ixx>
 					<ixy>0</ixy>
 					<ixz>0</ixz>
-					<iyy>1.05e-4</iyy>
+					<iyy>3.175e-4</iyy>
 					<iyz>0</iyz>
-					<izz>4.5e-5</izz>
+					<izz>1.35e-4</izz>
 				</inertia>
 			</inertial>
 			<visual name="base_visual">
@@ -43,6 +43,7 @@
 					<drake:hunt_crossley_dissipation>1.0</drake:hunt_crossley_dissipation>
 					<drake:mu_static>0.1</drake:mu_static>
 					<drake:mu_dynamic>0.1</drake:mu_dynamic>
+					<drake:relaxation_time>0.1</drake:relaxation_time>
 				</drake:proximity_properties>
 			</collision>
 		</link>
