@@ -1,6 +1,7 @@
 import numpy as np
 
 from pydrake.all import RotationMatrix, RollPitchYaw, PiecewisePolynomial, RigidTransform, FixedOffsetFrame, CollisionFilterDeclaration
+import scipy.interpolate
 
 from envs.panda_env import PandaEnv
 
@@ -11,20 +12,22 @@ class ScoopEnv(PandaEnv):
                 render=False,
                 camera_param=None,
                 visualize_contact=False,
-                diff_ik_filter_hz=500,
+                hand_type='panda',
+                diff_ik_filter_hz=200,
                 contact_solver='sap',
-                panda_joint_damping=200,
+                panda_joint_damping=1.0,
                 ):
         super(ScoopEnv, self).__init__(
             dt=dt,
             render=render,
             camera_param=camera_param,
             visualize_contact=visualize_contact,
+            hand_type=hand_type,
             diff_ik_filter_hz=diff_ik_filter_hz,
             contact_solver=contact_solver,
             panda_joint_damping=panda_joint_damping,
         )
-        self.veggie_x = 0.68    # for scooping direction - assume veggies around this position in x
+        self.veggie_x = 0.65    # for scooping direction - assume veggies around this position in x
         self.finger_init_pos = 0.04
         self.spatula_init_z = 0.002
 
@@ -32,6 +35,15 @@ class ScoopEnv(PandaEnv):
         self.veggie_hc_dissipation = 1.0
         self.veggie_hydro_resolution = 0.005
 
+        # Default tasks
+        # self.task.obj_num = 1
+        # self.task.sdf = home_path + \
+        #     '/data/drake/models/veggies/sample_ellipsoid.sdf'
+        # self.task.obj_mu = 0.4
+        # self.task.obj_modulus = 5
+        # self.task.obj_x = [0.70, 0.68, 0.68]
+        # self.task.obj_y = [0, -0.02, 0.02]
+        # self.task.obj_z = [0.01, 0.02, 0.03]
 
 
     def reset_task(self, task):
@@ -188,6 +200,13 @@ class ScoopEnv(PandaEnv):
                                    ],
                                 rpy=[0, 0, 0])
             self.set_body_vel(veggie_base, plant_context)
+
+        # Get fixed transforms between frames
+        self.p_spatula_tip_to_spatula_base = self.spatula_base_frame.CalcPose(plant_context, self.spatula_tip_frame)
+        self.p_spatula_tip_to_spatula_grasp = self.spatula_grasp_frame.CalcPose(plant_context, self.spatula_tip_frame)
+
+        ######################## Observation ########################
+
         station_context = self.station.GetMyContextFromRoot(context)
         return np.empty(())
 
@@ -210,7 +229,7 @@ class ScoopEnv(PandaEnv):
         # s_yaw = action[0]
         s_pitch_init = action[0]
         # s_x_veggie_tip = action[2]
-        s_x_veggie_tip = -0.05
+        s_x_veggie_tip = -0.02
         xd_1, pd_1, pd_2 = action[1:]
 
         # Veggit to tip
@@ -264,6 +283,8 @@ class ScoopEnv(PandaEnv):
         for t_ind in range(1, num_t_init):
             context = self.simulator.get_mutable_context()
             plant_context = self.plant.GetMyContextFromRoot(context)
+            self.ik_result_port.FixValue(station_context, np.zeros((7)))
+            self.V_WG_command_port.FixValue(station_context, [0]*6)  # hold arm in place
             self.hand_position_command_port.FixValue(station_context, 
                                                      hand_width_command)
 
@@ -278,8 +299,9 @@ class ScoopEnv(PandaEnv):
             try:
                 status = self.simulator.AdvanceTo(t)
             except RuntimeError as e:
-                logging.info(f'Sim error at time {t}!')
+                print(f'Sim error at time {t}!')
                 return self._get_obs(station_context), 0, True, {}
+
         # Time for spline 
         tn = [0, 0.25, 0.1, 0.25, 0.1, 0.1]
         tn = np.cumsum(tn)
@@ -319,8 +341,6 @@ class ScoopEnv(PandaEnv):
             plant_context = self.plant.GetMyContextFromRoot(context)
             hand_force_measure = self.hand_force_measure_port.Eval(station_context)
             self.ik_result_port.FixValue(station_context, np.zeros((7)))
-            # self.V_WG_command_port.FixValue(station_context, 
-            #                                 traj_V_G.value(t - t_init))
             self.V_WG_command_port.FixValue(station_context, V_G)
             self.hand_position_command_port.FixValue(station_context, 
                                                     hand_width_command)

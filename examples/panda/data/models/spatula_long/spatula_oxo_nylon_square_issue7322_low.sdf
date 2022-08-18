@@ -23,12 +23,12 @@
         <pose>0 0 0 0 0 0</pose>
         <geometry>
           <mesh>
-            <uri>spatula_oxo_nylon_square_issue7322_low.obj</uri>
+            <uri>package://drake/examples/panda/data/models/spatula_long/spatula_oxo_nylon_square_issue7322_low.obj</uri>
             <scale>1.0 1.0 1.0</scale>
           </mesh>
         </geometry>
         <material>
-          <drake:diffuse_map>spatula_oxo_nylon_square_issue7322_color.png</drake:diffuse_map>
+          <drake:diffuse_map>package://drake/examples/panda/data/models/spatula_long/spatula_oxo_nylon_square_issue7322_color.png</drake:diffuse_map>
         </material>
       </visual>
       <!-- <visual name="spatula_collision">

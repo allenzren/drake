@@ -102,7 +102,7 @@ def AddPanda(plant,
 def AddHand(plant, 
             panda_model_instance=None, 
             # welded=False, 
-            type='wsg',
+            type='panda',
             ):
     """Adds a hand to the panda arm (panda_link8)
 
@@ -112,11 +112,7 @@ def AddHand(plant,
     welded: if we want the version with welded fingers (for control)
     """
     parser = pydrake.multibody.parsing.Parser(plant)
-    if type == 'wsg':
-        file_path = FindResourceOrThrow('drake/examples/panda/data/models/wsg_50_description/sdf/schunk_wsg_50_box.sdf')
-        gripper_base_frame_name = 'gripper_base'
-        X_8G = RigidTransform(RollPitchYaw(np.pi / 2.0, 0, 0), [0, 0, 0.03625+0.01])  # 0.03625: half dim of gripper base; 0.01: connector on real robot
-    elif type == 'panda':
+    if type == 'panda':
         file_path = FindResourceOrThrow('drake/examples/panda/data/models/franka_description/urdf/panda_hand.urdf')
         gripper_base_frame_name = 'panda_hand'
         X_8G = RigidTransform(RollPitchYaw(0, 0, -np.pi/2), [0,0,0])
@@ -129,13 +125,12 @@ def AddHand(plant,
     gripper = parser.AddModelFromFile(file_path)
 
     # Add coupler constraint.
-    if type == 'panda' or type == 'panda_foam':
+    if type == 'panda':
         left_slider = plant.GetJointByName("panda_finger_joint1")
         right_slider = plant.GetJointByName("panda_finger_joint2")
         coupler_index = plant.AddCouplerConstraint(
             joint0=left_slider, joint1=right_slider,
             gear_ratio=-1.0, offset=0)
-    # TODO: constraint for WSG
 
     # Get body
     gripper_body = plant.GetBodyByName(gripper_base_frame_name, gripper)

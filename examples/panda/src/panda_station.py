@@ -2,7 +2,6 @@ import numpy as np
 from pathlib import Path
 
 import pydrake
-home_path = str(Path.home())
 from pydrake.all import (
         LoadModelDirectives, ProcessModelDirectives, GeometrySet, Parser,
         DiagramBuilder, Diagram, MultibodyPlant, 
@@ -17,8 +16,7 @@ from pydrake.all import (
 from .differential_ik import PseudoInverseController
 from .discrete_filter import DiscreteLowPassFilter
 from .rate_limiter import RateLimiter
-from .scenarios import AddPanda, AddHand, AddRgbdSensor
-# from .util import FindResource, AddPackagePaths
+from .scenarios import AddPanda, AddHand
 
 
 def deg_to_rad(deg):
@@ -29,7 +27,6 @@ class PandaStation(Diagram):
 
     def __init__(self, 
                  dt=0.002, 
-                 visualize_contact=False,
                  contact_solver='sap',
                  panda_joint_damping=200,
                  table_offset=0,
@@ -37,7 +34,6 @@ class PandaStation(Diagram):
                  ):
         Diagram.__init__(self)
         self.dt = dt
-        self.visualize_contact = visualize_contact
         self.panda_joint_damping = panda_joint_damping
         self.table_offset = table_offset
         self.hand_type = hand_type
@@ -124,7 +120,7 @@ class PandaStation(Diagram):
         self.collision_filter_manager = self.sg.collision_filter_manager()
 
 
-    def Finalize(self):
+    def Finalize(self, visualize_contact):
         assert self.panda.is_valid(), "No panda model added"
         assert self.hand.is_valid(), "No panda hand model added"
 
@@ -143,7 +139,7 @@ class PandaStation(Diagram):
                 )
 
         # Send contact info to visualizer
-        if self.visualize_contact:
+        if visualize_contact:
             ConnectContactResultsToDrakeVisualizer(
                         builder=self.builder, 
                         plant=self.plant, 
@@ -325,7 +321,7 @@ class PandaStation(Diagram):
             "integrator_output"
             )
 
-        #! Add integrator output and IK input
+        # Add integrator output and IK input
         ik_input = self.builder.AddSystem(PassThrough(num_panda_positions))
         self.builder.ExportInput(
             ik_input.get_input_port(), 

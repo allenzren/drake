@@ -15,7 +15,7 @@ class PandaEnv(ABC):
                  render=False,
                  camera_param=None,
                  visualize_contact=False,
-                 hand_type='wsg',
+                 hand_type='panda',
                  diff_ik_filter_hz=-1,
                  contact_solver='sap',
                  panda_joint_damping=200,
@@ -58,7 +58,6 @@ class PandaEnv(ABC):
         # Load panda and Drake basics
         builder = DiagramBuilder()
         system = PandaStation(dt=self.dt, 
-                              visualize_contact=self.visualize_contact,
                               contact_solver=self.contact_solver,
                               panda_joint_damping=self.panda_joint_damping,
                               table_offset=self.table_offset,
@@ -88,7 +87,7 @@ class PandaEnv(ABC):
         self.station.set_arm_controller(diff_ik_filter_hz=self.diff_ik_filter_hz)
         if self.flag_actuate_hand:
             self.station.set_hand_controller()
-        self.station.Finalize()
+        self.station.Finalize(self.visualize_contact)
 
         # Get controllers
         self.panda = self.station.get_panda()
@@ -136,6 +135,8 @@ class PandaEnv(ABC):
         """
         if task is None:
             task = self.task
+        else:
+            self.task = task
 
         if not self.flag_setup:
             self._setup(task)
