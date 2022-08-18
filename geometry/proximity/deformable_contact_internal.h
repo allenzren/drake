@@ -47,6 +47,12 @@ class Geometries final : public ShapeReifier {
     return rigid_geometries_.count(id) != 0;
   }
 
+  /* Returns true if a deformable geometry representation with the given `id`
+   exists. */
+  bool is_deformable(GeometryId id) const {
+    return deformable_geometries_.count(id) != 0;
+  }
+
   /* Removes the geometry (if it has a deformable contact representation). No-op
    if no geometry with a deformable contact representation exists with the
    provided id. */
@@ -66,17 +72,41 @@ class Geometries final : public ShapeReifier {
    @param id            The unique identifier for the geometry.
    @param properties    The proximity properties that specifies the properties
                         of the rigid representation.
+   @param X_WG          The pose of the geometry in the world frame.
    @throws std::exception if resolution hint <= 0 for the following shapes: Box,
            Sphere, Cylinder, Capsule, and Ellipsoid. Note that Mesh and Convex
            don't restrict the range of resolution_hint.
    @pre There is no previous representation associated with id.  */
   void MaybeAddRigidGeometry(const Shape& shape, GeometryId id,
-                             const ProximityProperties& props);
+                             const ProximityProperties& props,
+                             const math::RigidTransform<double>& X_WG);
 
   /* Updates the world pose of the rigid geometry with the given id, if it
    exists, to `X_WG`. */
   void UpdateRigidWorldPose(GeometryId id,
                             const math::RigidTransform<double>& X_WG);
+
+  /* Adds a deformable geometry whose contact mesh representation is given by
+   `mesh`.
+
+   @param id     The unique identifier for the geometry.
+   @param mesh   The volume mesh representation of the deformable geometry.
+   @pre There is no previous representation associated with id. */
+  void AddDeformableGeometry(GeometryId id, VolumeMesh<double> mesh);
+
+  /* If a deformable geometry with `id` exists, updates the vertex positions
+   of the geometry (in the world frame) to `q_WG`. */
+  void UpdateDeformableVertexPositions(
+      GeometryId id, const Eigen::Ref<const VectorX<double>>& q_WG);
+
+  /* For each registered deformable geometry, computes the contact data of it
+   with respect to all registered rigid geometries. Assumes the vertex positions
+   and poses of all registered deformable and rigid geometries are up to date.
+   The results are sorted according to deformable id.
+   @pre deformable_rigid_contact != nullptr. */
+  void ComputeDeformableRigidContact(
+      std::vector<DeformableRigidContact<double>>* deformable_rigid_contact)
+      const;
 
  private:
   friend class GeometriesTester;
@@ -103,7 +133,8 @@ class Geometries final : public ShapeReifier {
   template <typename ShapeType>
   void AddRigidGeometry(const ShapeType& shape, const ReifyData& data);
 
-  // TODO(xuchenhan-tri): Add deformable geometries.
+  // The representations of all deformable geometries.
+  std::unordered_map<GeometryId, DeformableGeometry> deformable_geometries_;
 
   // The representations of all rigid geometries.
   std::unordered_map<GeometryId, RigidGeometry> rigid_geometries_;

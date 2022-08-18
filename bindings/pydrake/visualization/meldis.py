@@ -195,11 +195,23 @@ class _ViewerApplet:
         elif geom.type == lcmt_viewer_geometry_data.ELLIPSOID:
             (a, b, c) = geom.float_data
             shape = Ellipsoid(a=a, b=b, c=c)
-        elif geom.type == lcmt_viewer_geometry_data.MESH:
+        elif geom.type == lcmt_viewer_geometry_data.MESH and geom.string_data:
+            # A mesh to be loaded from a file.
             (scale_x, scale_y, scale_z) = geom.float_data
             filename = geom.string_data
             assert scale_x == scale_y and scale_y == scale_z
             shape = Mesh(absolute_filename=filename, scale=scale_x)
+        elif geom.type == lcmt_viewer_geometry_data.MESH:
+            assert not geom.string_data
+            # A mesh with the data inline, i.e.,
+            #   V | T | v0 | v1 | ... vN | t0 | t1 | ... | tM
+            # where
+            #   V: The number of vertices.
+            #   T: The number of triangles.
+            #   N: 3V, the number of floating point values for the V vertices.
+            #   M: 3T, the number of vertex indices for the T triangles.
+            _logger.warning("Meldis cannot yet display hydroelastic collision "
+                            "meshes; that geometry will be ignored.")
         elif geom.type == lcmt_viewer_geometry_data.SPHERE:
             (radius,) = geom.float_data
             shape = Sphere(radius=radius)
@@ -233,7 +245,7 @@ class _ContactApplet:
 
     def __init__(self, *, meshcat):
         # By default, don't show any contact illustrations.
-        meshcat.SetProperty("/CONTACT_RESULTS", "visible", False)
+        meshcat.SetProperty("/CONTACT_RESULTS", "visible", True)
 
         # Add point visualization.
         params = ContactVisualizerParams()
@@ -244,6 +256,55 @@ class _ContactApplet:
         params = ContactVisualizerParams()
         params.prefix = "/CONTACT_RESULTS/hydroelastic"
         self._hydro_helper = _HydroelasticContactVisualizer(meshcat, params)
+
+    # Converts poly_data from a hydro lcm message to numpy array.
+    def convert_faces(self, poly_data):
+        poly_index = 0
+        faces = []
+        while poly_index < len(poly_data):
+            poly_i_num_vertices = poly_data[poly_index]
+            vertex_0_index = poly_index + 1
+            vertex_0_global_index = poly_data[vertex_0_index]
+            for i in range(1, poly_i_num_vertices - 1):
+                vertex_1_global_index = poly_data[vertex_0_index + i]
+                vertex_2_global_index = poly_data[vertex_0_index + i + 1]
+                faces.append([vertex_0_global_index,
+                              vertex_1_global_index,
+                              vertex_2_global_index])
+            poly_index += poly_i_num_vertices + 1
+        return np.array(faces).transpose()
+
+    # Converts verts from hydro lcm message to numpy array
+    def convert_verts(self, p_WV):
+        verts = np.empty((3, len(p_WV)))
+        for i in range(len(p_WV)):
+            verts[0, i] = p_WV[i].x
+            verts[1, i] = p_WV[i].y
+            verts[2, i] = p_WV[i].z
+        return verts
+
+    def get_full_names(self, item):
+        name1 = []
+        name2 = []
+
+        # Use model instance name if necessary.
+        if not item.body1_unique:
+            name1.append(item.model1_name)
+
+        if not item.body2_unique:
+            name2.append(item.model2_name)
+
+        name1.append(item.body1_name)
+        name2.append(item.body2_name)
+
+        # Use geometry name if necessary.
+        if item.collision_count1 > 1:
+            name1.append(item.geometry1_name)
+
+        if item.collision_count2 > 1:
+            name2.append(item.geometry2_name)
+
+        return (".".join(name1), ".".join(name2))
 
     def on_contact_results(self, message):
         """Handler for lcmt_contact_results_for_viz. Note that only point
@@ -263,12 +324,16 @@ class _ContactApplet:
         # Handle hydroelastic contact pairs
         viz_items = []
         for lcm_item in message.hydroelastic_contacts:
+            (name1, name2) = self.get_full_names(lcm_item)
             viz_items.append(_HydroelasticContactVisualizerItem(
-                body_A=lcm_item.body1_name,
-                body_B=lcm_item.body2_name,
+                body_A=name1,
+                body_B=name2,
                 centroid_W=lcm_item.centroid_W,
                 force_C_W=lcm_item.force_C_W,
-                moment_C_W=lcm_item.moment_C_W))
+                moment_C_W=lcm_item.moment_C_W,
+                p_WV=self.convert_verts(lcm_item.p_WV),
+                faces=self.convert_faces(lcm_item.poly_data),
+                pressure=lcm_item.pressure))
         self._hydro_helper.Update(viz_items)
 
 

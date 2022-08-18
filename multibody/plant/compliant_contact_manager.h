@@ -20,6 +20,16 @@ namespace drake {
 namespace multibody {
 namespace internal {
 
+// Struct used to conglomerate the indexes of cache entries declared by the
+// manager.
+struct CacheIndexes {
+  CacheIndexes() = default;
+  DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(CacheIndexes);
+  systems::CacheIndex contact_problem;
+  systems::CacheIndex discrete_contact_pairs;
+  systems::CacheIndex non_contact_forces_accelerations;
+};
+
 template <typename T>
 struct ContactPairKinematics {
   DRAKE_DEFAULT_COPY_AND_MOVE_AND_ASSIGN(ContactPairKinematics);
@@ -143,14 +153,19 @@ class CompliantContactManager final
     sap_parameters_ = parameters;
   }
 
+  bool is_cloneable_to_double() const final { return true; }
+  bool is_cloneable_to_autodiff() const final { return true; }
+
  private:
-  // Struct used to conglomerate the indexes of cache entries declared by the
-  // manager.
-  struct CacheIndexes {
-    systems::CacheIndex contact_problem;
-    systems::CacheIndex discrete_contact_pairs;
-    systems::CacheIndex non_contact_forces_accelerations;
-  };
+  // Allow different specializations to access each other's private data for
+  // scalar conversion.
+  template <typename U>
+  friend class CompliantContactManager;
+
+  // Allow different specializations to access each other's private data for
+  // scalar conversion.
+  template <typename U>
+  friend class CompliantContactManager;
 
   // Provide private access for unit testing only.
   friend class CompliantContactManagerTest;
@@ -158,6 +173,11 @@ class CompliantContactManager final
   const MultibodyTreeTopology& tree_topology() const {
     return internal::GetInternalTree(this->plant()).get_topology();
   }
+
+  std::unique_ptr<DiscreteUpdateManager<double>> CloneToDouble()
+      const final;
+  std::unique_ptr<DiscreteUpdateManager<AutoDiffXd>> CloneToAutoDiffXd()
+      const final;
 
   // Extracts non state dependent model information from MultibodyPlant. See
   // DiscreteUpdateManager for details.
@@ -322,6 +342,12 @@ class CompliantContactManager final
   // @pre problem must not be nullptr.
   void AddLimitConstraints(
       const systems::Context<T>& context, const VectorX<T>& v_star,
+      contact_solvers::internal::SapContactProblem<T>* problem) const;
+
+  // Adds holonomic constraints to model couplers specified in the
+  // MultibodyPlant.
+  void AddCouplerConstraints(
+      const systems::Context<T>& context,
       contact_solvers::internal::SapContactProblem<T>* problem) const;
 
   // This method takes SAP results for a given `problem` and loads forces due to

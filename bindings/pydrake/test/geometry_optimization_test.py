@@ -4,6 +4,7 @@ import unittest
 
 import numpy as np
 
+from pydrake.common import RandomGenerator
 from pydrake.common.test_utilities.deprecation import catch_drake_warnings
 from pydrake.common.test_utilities.pickle_compare import assert_pickle
 from pydrake.geometry import (
@@ -11,6 +12,7 @@ from pydrake.geometry import (
     GeometryInstance, SceneGraph, Sphere,
 )
 from pydrake.math import RigidTransform
+from pydrake.multibody.inverse_kinematics import InverseKinematics
 from pydrake.multibody.parsing import Parser
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
 from pydrake.systems.framework import DiagramBuilder
@@ -96,6 +98,13 @@ class TestGeometryOptimization(unittest.TestCase):
         self.assertIsInstance(h5, mut.HPolyhedron)
         np.testing.assert_array_equal(h5.A(), h_box.A())
         np.testing.assert_array_equal(h5.b(), np.zeros(6))
+
+        generator = RandomGenerator()
+        sample = h_box.UniformSample(generator=generator)
+        self.assertEqual(sample.shape, (3,))
+        self.assertEqual(
+            h_box.UniformSample(generator=generator,
+                                previous_sample=sample).shape, (3, ))
 
     def test_hyper_ellipsoid(self):
         ellipsoid = mut.Hyperellipsoid(A=self.A, center=self.b)
@@ -314,6 +323,7 @@ class TestGeometryOptimization(unittest.TestCase):
         options.iteration_limit = 1
         options.termination_threshold = 0.1
         options.relative_termination_threshold = 0.01
+        options.random_seed = 1314
         self.assertNotIn("object at 0x", repr(options))
         region = mut.Iris(
             obstacles=obstacles, sample=[2, 3.4, 5],
@@ -354,6 +364,9 @@ class TestGeometryOptimization(unittest.TestCase):
         diagram = builder.Build()
         context = diagram.CreateDefaultContext()
         options = mut.IrisOptions()
+        ik = InverseKinematics(plant)
+        options.prog_with_additional_constraints = ik.prog()
+        options.num_additional_constraint_infeasible_samples = 2
         plant.SetPositions(plant.GetMyMutableContextFromRoot(context), [0])
         region = mut.IrisInConfigurationSpace(
             plant=plant, context=plant.GetMyContextFromRoot(context),
