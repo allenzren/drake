@@ -1,3 +1,6 @@
+// This file is licensed under the MIT-0 License.
+// See LICENSE-MIT-0.txt in the current directory.
+
 #include "drake/examples/hardware_sim/scenario.h"
 
 #include <utility>
@@ -5,6 +8,7 @@
 #include "drake/common/yaml/yaml_io.h"
 
 namespace drake {
+namespace internal {
 
 // N.B. This is in a cc file to reduce compilation time for the serialization-
 // related template classes and functions.
@@ -38,4 +42,5 @@ std::string SaveScenario(
   return drake::yaml::SaveYamlString(scenario, {scenario_name}, defaults);
 }
 
+}  // namespace internal
 }  // namespace drake

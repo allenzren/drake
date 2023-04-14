@@ -3,15 +3,18 @@ import warnings
 
 import numpy as np
 
-from pydrake.solvers import mathematicalprogram as mp
-from pydrake.solvers.csdp import CsdpSolver
-import pydrake.solvers.sdpa_free_format as sdpa_free_format
-from pydrake.common.test_utilities.deprecation import catch_drake_warnings
+from pydrake.solvers import (
+    CsdpSolver,
+    MathematicalProgram,
+    RemoveFreeVariableMethod,
+    SolverOptions,
+    SolverType,
+)
 
 
 class TestCsdpSolver(unittest.TestCase):
     def _make_prog(self):
-        prog = mp.MathematicalProgram()
+        prog = MathematicalProgram()
         x1 = prog.NewSymmetricContinuousVariables(2, "x1")
         x2 = prog.NewSymmetricContinuousVariables(3, "x2")
         y = prog.NewContinuousVariables(2, "y")
@@ -35,12 +38,12 @@ class TestCsdpSolver(unittest.TestCase):
         self.assertTrue(solver.available())
         self.assertEqual(solver.solver_id().name(), "CSDP")
         self.assertEqual(solver.SolverName(), "CSDP")
-        self.assertEqual(solver.solver_type(), mp.SolverType.kCsdp)
-        solver_options = mp.SolverOptions()
+        self.assertEqual(solver.solver_type(), SolverType.kCsdp)
+        solver_options = SolverOptions()
         solver_options.SetOption(
             solver.id(),
             "drake::RemoveFreeVariableMethod",
-            sdpa_free_format.RemoveFreeVariableMethod.kNullspace)
+            RemoveFreeVariableMethod.kNullspace)
         result = solver.Solve(prog, None, solver_options)
         self.assertTrue(result.is_success())
         self.assertTrue(np.allclose(result.GetSolution(x1), x1_expected))
@@ -60,16 +63,12 @@ class TestCsdpSolver(unittest.TestCase):
 
         # Test removing free variables with a non-default method.
         solver = CsdpSolver()
-        solver_options = mp.SolverOptions()
+        solver_options = SolverOptions()
         solver_options.SetOption(
             solver.id(), "drake::RemoveFreeVariableMethod",
-            sdpa_free_format.RemoveFreeVariableMethod.kLorentzConeSlack)
+            RemoveFreeVariableMethod.kLorentzConeSlack)
         result = solver.Solve(prog, None, solver_options)
         self.assertTrue(result.is_success())
-        with catch_drake_warnings(expected_count=1):
-            CsdpSolver(
-                method=sdpa_free_format.RemoveFreeVariableMethod.
-                kLorentzConeSlack)
 
     def unavailable(self):
         """Per the BUILD file, this test is only run when CSDP is disabled."""

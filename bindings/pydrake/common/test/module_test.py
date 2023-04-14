@@ -29,9 +29,7 @@ class TestCommon(unittest.TestCase):
                 ]))
 
     def test_find_resource_or_throw(self):
-        mut.FindResourceOrThrow(
-            'drake/examples/atlas/urdf/atlas_convex_hull.urdf'
-            )
+        mut.FindResourceOrThrow("drake/examples/acrobot/Acrobot.urdf")
 
     def test_test_temp_directory(self):
         temp_dir = mut.temp_directory()
@@ -54,9 +52,8 @@ class TestCommon(unittest.TestCase):
 
     def test_logging(self):
         self.assertTrue(mut._module_py._HAVE_SPDLOG)
-        with catch_drake_warnings(expected_count=1) as w:
-            self.assertIsInstance(
-                mut.set_log_level(level="unchanged"), str)
+        self.assertIsInstance(
+            mut._set_log_level(level="unchanged"), str)
 
     def test_random_generator(self):
         g1 = mut.RandomGenerator()

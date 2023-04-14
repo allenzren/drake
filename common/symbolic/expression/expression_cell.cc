@@ -48,7 +48,9 @@ bool is_integer(const double v) {
   return modf(v, &intpart) == 0.0;
 }
 
-bool is_positive_integer(const double v) { return (v > 0) && is_integer(v); }
+bool is_positive_integer(const double v) {
+  return (v > 0) && is_integer(v);
+}
 
 bool is_non_negative_integer(const double v) {
   return (v >= 0) && is_integer(v);
@@ -131,7 +133,7 @@ Expression ExpandMultiplication(const Expression& e1, const Expression& e2) {
     for (const pair<const Expression, double>& p : m1) {
       fac.AddExpression(ExpandMultiplication(p.second, p.first, e2));
     }
-    return fac.GetExpression();
+    return std::move(fac).GetExpression();
   }
   if (is_addition(e2)) {
     //   e1 * (c0 + c1 * e_{2,1} + ... + c_n * e_{2, n})
@@ -143,7 +145,7 @@ Expression ExpandMultiplication(const Expression& e1, const Expression& e2) {
     for (const pair<const Expression, double>& p : m1) {
       fac.AddExpression(ExpandMultiplication(e1, p.second, p.first));
     }
-    return fac.GetExpression();
+    return std::move(fac).GetExpression();
   }
   if (is_division(e1)) {
     const Expression& e1_1{get_first_argument(e1)};
@@ -335,7 +337,9 @@ void ExpressionVar::HashAppendDetail(DelegatingHasher* hasher) const {
   hash_append(*hasher, var_);
 }
 
-Variables ExpressionVar::GetVariables() const { return {get_variable()}; }
+Variables ExpressionVar::GetVariables() const {
+  return {get_variable()};
+}
 
 bool ExpressionVar::EqualTo(const ExpressionCell& e) const {
   // Expression::EqualTo guarantees the following assertion.
@@ -365,7 +369,17 @@ double ExpressionVar::Evaluate(const Environment& env) const {
   throw runtime_error{oss.str()};
 }
 
-Expression ExpressionVar::Expand() const { return Expression{var_}; }
+Expression ExpressionVar::Expand() const {
+  return Expression{var_};
+}
+
+Expression ExpressionVar::EvaluatePartial(const Environment& env) const {
+  const Environment::const_iterator it{env.find(var_)};
+  if (it != env.end()) {
+    return it->second;
+  }
+  return Expression{var_};
+}
 
 Expression ExpressionVar::Substitute(const Substitution& s) const {
   const Substitution::const_iterator it{s.find(var_)};
@@ -382,14 +396,18 @@ Expression ExpressionVar::Differentiate(const Variable& x) const {
   return Expression::Zero();
 }
 
-ostream& ExpressionVar::Display(ostream& os) const { return os << var_; }
+ostream& ExpressionVar::Display(ostream& os) const {
+  return os << var_;
+}
 
 ExpressionNaN::ExpressionNaN()
     : ExpressionCell{ExpressionKind::NaN, false, false} {}
 
 void ExpressionNaN::HashAppendDetail(DelegatingHasher*) const {}
 
-Variables ExpressionNaN::GetVariables() const { return Variables{}; }
+Variables ExpressionNaN::GetVariables() const {
+  return Variables{};
+}
 
 bool ExpressionNaN::EqualTo(const ExpressionCell& e) const {
   // Expression::EqualTo guarantees the following assertion.
@@ -411,6 +429,10 @@ Expression ExpressionNaN::Expand() const {
   throw runtime_error("NaN is detected during expansion.");
 }
 
+Expression ExpressionNaN::EvaluatePartial(const Environment&) const {
+  throw runtime_error("NaN is detected during environment substitution.");
+}
+
 Expression ExpressionNaN::Substitute(const Substitution&) const {
   throw runtime_error("NaN is detected during substitution.");
 }
@@ -419,14 +441,16 @@ Expression ExpressionNaN::Differentiate(const Variable&) const {
   throw runtime_error("NaN is detected during differentiation.");
 }
 
-ostream& ExpressionNaN::Display(ostream& os) const { return os << "NaN"; }
+ostream& ExpressionNaN::Display(ostream& os) const {
+  return os << "NaN";
+}
 
 ExpressionAdd::ExpressionAdd(const double constant,
-                             const map<Expression, double>& expr_to_coeff_map)
+                             map<Expression, double> expr_to_coeff_map)
     : ExpressionCell{ExpressionKind::Add,
                      determine_polynomial(expr_to_coeff_map), false},
       constant_(constant),
-      expr_to_coeff_map_(expr_to_coeff_map) {
+      expr_to_coeff_map_(std::move(expr_to_coeff_map)) {
   DRAKE_ASSERT(!expr_to_coeff_map_.empty());
 }
 
@@ -510,7 +534,16 @@ Expression ExpressionAdd::Expand() const {
     fac.AddExpression(
         ExpandMultiplication(e_i.is_expanded() ? e_i : e_i.Expand(), c_i));
   }
-  return fac.GetExpression();
+  return std::move(fac).GetExpression();
+}
+
+Expression ExpressionAdd::EvaluatePartial(const Environment& env) const {
+  return accumulate(
+      expr_to_coeff_map_.begin(), expr_to_coeff_map_.end(),
+      Expression{constant_},
+      [&env](const Expression& init, const pair<const Expression, double>& p) {
+        return init + p.first.EvaluatePartial(env) * p.second;
+      });
 }
 
 Expression ExpressionAdd::Substitute(const Substitution& s) const {
@@ -530,7 +563,7 @@ Expression ExpressionAdd::Differentiate(const Variable& x) const {
   for (const pair<const Expression, double>& p : expr_to_coeff_map_) {
     fac.AddExpression(p.second * p.first.Differentiate(x));
   }
-  return fac.GetExpression();
+  return std::move(fac).GetExpression();
 }
 
 ostream& ExpressionAdd::Display(ostream& os) const {
@@ -574,15 +607,15 @@ ostream& ExpressionAdd::DisplayTerm(ostream& os, const bool print_plus,
 
 ExpressionAddFactory::ExpressionAddFactory(
     const double constant, map<Expression, double> expr_to_coeff_map)
-    : is_expanded_(false), constant_{constant},
+    : is_expanded_(false),
+      constant_{constant},
       expr_to_coeff_map_{std::move(expr_to_coeff_map)} {
   // Note that we set is_expanded_ to false to be conservative. We could imagine
   // inspecting the expr_to_coeff_map to compute a more precise value, but it's
   // not clear that doing so would improve our overall performance.
 }
 
-ExpressionAddFactory::ExpressionAddFactory(
-    const ExpressionAdd& add)
+ExpressionAddFactory::ExpressionAddFactory(const ExpressionAdd& add)
     : ExpressionAddFactory{add.get_constant(), add.get_expr_to_coeff_map()} {
   is_expanded_ = add.is_expanded();
 }
@@ -624,15 +657,15 @@ ExpressionAddFactory& ExpressionAddFactory::operator=(
   return *this;
 }
 
-ExpressionAddFactory& ExpressionAddFactory::Negate() {
+ExpressionAddFactory&& ExpressionAddFactory::Negate() && {
   constant_ = -constant_;
   for (auto& p : expr_to_coeff_map_) {
     p.second = -p.second;
   }
-  return *this;
+  return std::move(*this);
 }
 
-Expression ExpressionAddFactory::GetExpression() const {
+Expression ExpressionAddFactory::GetExpression() && {
   if (expr_to_coeff_map_.empty()) {
     return Expression{constant_};
   }
@@ -641,7 +674,8 @@ Expression ExpressionAddFactory::GetExpression() const {
     const auto it(expr_to_coeff_map_.cbegin());
     return it->first * it->second;
   }
-  auto result = make_unique<ExpressionAdd>(constant_, expr_to_coeff_map_);
+  auto result =
+      make_unique<ExpressionAdd>(constant_, std::move(expr_to_coeff_map_));
   if (is_expanded_) {
     result->set_expanded();
   }
@@ -666,9 +700,9 @@ void ExpressionAddFactory::AddTerm(const double coeff, const Expression& term) {
       // TODO(soonho-tri): The following operation is not sound since it cancels
       // `term` which might contain 0/0 problems.
       expr_to_coeff_map_.erase(it);
-     // Note that we leave is_expanded_ unchanged here. We could imagine
-     // inspecting the new expr_to_coeff_map_ to compute a more precise value,
-     // but it's not clear that doing so would improve our overall performance.
+      // Note that we leave is_expanded_ unchanged here. We could imagine
+      // inspecting the new expr_to_coeff_map_ to compute a more precise value,
+      // but it's not clear that doing so would improve our overall performance.
     }
   } else {
     // Case2: term is not found in expr_to_coeff_map_.
@@ -692,13 +726,12 @@ void ExpressionAddFactory::AddMap(
   }
 }
 
-ExpressionMul::ExpressionMul(
-    const double constant,
-    const map<Expression, Expression>& base_to_exponent_map)
+ExpressionMul::ExpressionMul(const double constant,
+                             map<Expression, Expression> base_to_exponent_map)
     : ExpressionCell{ExpressionKind::Mul,
                      determine_polynomial(base_to_exponent_map), false},
       constant_(constant),
-      base_to_exponent_map_(base_to_exponent_map) {
+      base_to_exponent_map_(std::move(base_to_exponent_map)) {
   DRAKE_ASSERT(!base_to_exponent_map_.empty());
 }
 
@@ -777,16 +810,25 @@ double ExpressionMul::Evaluate(const Environment& env) const {
 Expression ExpressionMul::Expand() const {
   //   (c * ∏ᵢ pow(bᵢ, eᵢ)).Expand()
   // = c * ExpandMultiplication(∏ ExpandPow(bᵢ.Expand(), eᵢ.Expand()))
+  return accumulate(
+      base_to_exponent_map_.begin(), base_to_exponent_map_.end(),
+      Expression{constant_},
+      [](const Expression& init, const pair<const Expression, Expression>& p) {
+        const Expression& b_i{p.first};
+        const Expression& e_i{p.second};
+        return ExpandMultiplication(
+            init, ExpandPow(b_i.is_expanded() ? b_i : b_i.Expand(),
+                            e_i.is_expanded() ? e_i : e_i.Expand()));
+      });
+}
+
+Expression ExpressionMul::EvaluatePartial(const Environment& env) const {
   return accumulate(base_to_exponent_map_.begin(), base_to_exponent_map_.end(),
                     Expression{constant_},
-                    [](const Expression& init,
-                       const pair<const Expression, Expression>& p) {
-                      const Expression& b_i{p.first};
-                      const Expression& e_i{p.second};
-                      return ExpandMultiplication(
-                          init,
-                          ExpandPow(b_i.is_expanded() ? b_i : b_i.Expand(),
-                                    e_i.is_expanded() ? e_i : e_i.Expand()));
+                    [&env](const Expression& init,
+                           const pair<const Expression, Expression>& p) {
+                      return init * pow(p.first.EvaluatePartial(env),
+                                        p.second.EvaluatePartial(env));
                     });
 }
 
@@ -848,9 +890,9 @@ Expression ExpressionMul::Differentiate(const Variable& x) const {
     mul_fac.AddExpression(DifferentiatePow(base, exponent, x));
     mul_fac.AddExpression(pow(base, -exponent));
 
-    add_fac.AddExpression(mul_fac.GetExpression());
+    add_fac.AddExpression(std::move(mul_fac).GetExpression());
   }
-  return add_fac.GetExpression();
+  return std::move(add_fac).GetExpression();
 }
 
 ostream& ExpressionMul::Display(ostream& os) const {
@@ -888,7 +930,8 @@ ostream& ExpressionMul::DisplayTerm(ostream& os, const bool print_mul,
 
 ExpressionMulFactory::ExpressionMulFactory(
     const double constant, map<Expression, Expression> base_to_exponent_map)
-    : is_expanded_{false}, constant_{constant},
+    : is_expanded_{false},
+      constant_{constant},
       base_to_exponent_map_{std::move(base_to_exponent_map)} {}
 
 ExpressionMulFactory::ExpressionMulFactory(
@@ -900,8 +943,7 @@ ExpressionMulFactory::ExpressionMulFactory(
 }
 
 ExpressionMulFactory::ExpressionMulFactory(const ExpressionMul& mul)
-    : ExpressionMulFactory{mul.get_constant(),
-                           mul.get_base_to_exponent_map()} {
+    : ExpressionMulFactory{mul.get_constant(), mul.get_base_to_exponent_map()} {
   is_expanded_ = mul.is_expanded();
 }
 
@@ -946,12 +988,12 @@ ExpressionMulFactory& ExpressionMulFactory::operator=(
   return *this;
 }
 
-ExpressionMulFactory& ExpressionMulFactory::Negate() {
+ExpressionMulFactory&& ExpressionMulFactory::Negate() && {
   constant_ = -constant_;
-  return *this;
+  return std::move(*this);
 }
 
-Expression ExpressionMulFactory::GetExpression() const {
+Expression ExpressionMulFactory::GetExpression() && {
   if (base_to_exponent_map_.empty()) {
     return Expression{constant_};
   }
@@ -960,7 +1002,8 @@ Expression ExpressionMulFactory::GetExpression() const {
     const auto it(base_to_exponent_map_.cbegin());
     return pow(it->first, it->second);
   }
-  auto result = make_unique<ExpressionMul>(constant_, base_to_exponent_map_);
+  auto result =
+      make_unique<ExpressionMul>(constant_, std::move(base_to_exponent_map_));
   if (is_expanded_) {
     result->set_expanded();
   }
@@ -1074,7 +1117,7 @@ class DivExpandVisitor {
          get_expr_to_coeff_map_in_addition(e)) {
       factory.AddExpression(p.second / n * p.first);
     }
-    return factory.GetExpression();
+    return std::move(factory).GetExpression();
   }
   [[nodiscard]] Expression VisitMultiplication(const Expression& e,
                                                const double n) const {
@@ -1204,6 +1247,11 @@ Expression ExpressionDiv::Expand() const {
   }
 }
 
+Expression ExpressionDiv::EvaluatePartial(const Environment& env) const {
+  return get_first_argument().EvaluatePartial(env) /
+         get_second_argument().EvaluatePartial(env);
+}
+
 Expression ExpressionDiv::Substitute(const Substitution& s) const {
   return get_first_argument().Substitute(s) /
          get_second_argument().Substitute(s);
@@ -1248,6 +1296,10 @@ Expression ExpressionLog::Expand() const {
   return log(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionLog::EvaluatePartial(const Environment& env) const {
+  return log(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionLog::Substitute(const Substitution& s) const {
   return log(get_argument().Substitute(s));
 }
@@ -1275,6 +1327,10 @@ Expression ExpressionAbs::Expand() const {
   return abs(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionAbs::EvaluatePartial(const Environment& env) const {
+  return abs(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionAbs::Substitute(const Substitution& s) const {
   return abs(get_argument().Substitute(s));
 }
@@ -1294,7 +1350,9 @@ ostream& ExpressionAbs::Display(ostream& os) const {
   return os << "abs(" << get_argument() << ")";
 }
 
-double ExpressionAbs::DoEvaluate(const double v) const { return std::fabs(v); }
+double ExpressionAbs::DoEvaluate(const double v) const {
+  return std::fabs(v);
+}
 
 ExpressionExp::ExpressionExp(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Exp, e, false, e.is_expanded()} {}
@@ -1302,6 +1360,10 @@ ExpressionExp::ExpressionExp(const Expression& e)
 Expression ExpressionExp::Expand() const {
   const Expression& arg{get_argument()};
   return exp(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionExp::EvaluatePartial(const Environment& env) const {
+  return exp(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionExp::Substitute(const Substitution& s) const {
@@ -1318,7 +1380,9 @@ ostream& ExpressionExp::Display(ostream& os) const {
   return os << "exp(" << get_argument() << ")";
 }
 
-double ExpressionExp::DoEvaluate(const double v) const { return std::exp(v); }
+double ExpressionExp::DoEvaluate(const double v) const {
+  return std::exp(v);
+}
 
 ExpressionSqrt::ExpressionSqrt(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Sqrt, e, false, e.is_expanded()} {}
@@ -1335,6 +1399,10 @@ void ExpressionSqrt::check_domain(const double v) {
 Expression ExpressionSqrt::Expand() const {
   const Expression& arg{get_argument()};
   return sqrt(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionSqrt::EvaluatePartial(const Environment& env) const {
+  return sqrt(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionSqrt::Substitute(const Substitution& s) const {
@@ -1379,6 +1447,11 @@ Expression ExpressionPow::Expand() const {
                    e2.is_expanded() ? e2 : e2.Expand());
 }
 
+Expression ExpressionPow::EvaluatePartial(const Environment& env) const {
+  return pow(get_first_argument().EvaluatePartial(env),
+             get_second_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionPow::Substitute(const Substitution& s) const {
   return pow(get_first_argument().Substitute(s),
              get_second_argument().Substitute(s));
@@ -1406,6 +1479,10 @@ Expression ExpressionSin::Expand() const {
   return sin(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionSin::EvaluatePartial(const Environment& env) const {
+  return sin(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionSin::Substitute(const Substitution& s) const {
   return sin(get_argument().Substitute(s));
 }
@@ -1420,7 +1497,9 @@ ostream& ExpressionSin::Display(ostream& os) const {
   return os << "sin(" << get_argument() << ")";
 }
 
-double ExpressionSin::DoEvaluate(const double v) const { return std::sin(v); }
+double ExpressionSin::DoEvaluate(const double v) const {
+  return std::sin(v);
+}
 
 ExpressionCos::ExpressionCos(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Cos, e, false, e.is_expanded()} {}
@@ -1428,6 +1507,10 @@ ExpressionCos::ExpressionCos(const Expression& e)
 Expression ExpressionCos::Expand() const {
   const Expression& arg{get_argument()};
   return cos(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionCos::EvaluatePartial(const Environment& env) const {
+  return cos(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionCos::Substitute(const Substitution& s) const {
@@ -1444,7 +1527,9 @@ ostream& ExpressionCos::Display(ostream& os) const {
   return os << "cos(" << get_argument() << ")";
 }
 
-double ExpressionCos::DoEvaluate(const double v) const { return std::cos(v); }
+double ExpressionCos::DoEvaluate(const double v) const {
+  return std::cos(v);
+}
 
 ExpressionTan::ExpressionTan(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Tan, e, false, e.is_expanded()} {}
@@ -1452,6 +1537,10 @@ ExpressionTan::ExpressionTan(const Expression& e)
 Expression ExpressionTan::Expand() const {
   const Expression& arg{get_argument()};
   return tan(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionTan::EvaluatePartial(const Environment& env) const {
+  return tan(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionTan::Substitute(const Substitution& s) const {
@@ -1468,7 +1557,9 @@ ostream& ExpressionTan::Display(ostream& os) const {
   return os << "tan(" << get_argument() << ")";
 }
 
-double ExpressionTan::DoEvaluate(const double v) const { return std::tan(v); }
+double ExpressionTan::DoEvaluate(const double v) const {
+  return std::tan(v);
+}
 
 ExpressionAsin::ExpressionAsin(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Asin, e, false, e.is_expanded()} {}
@@ -1485,6 +1576,10 @@ void ExpressionAsin::check_domain(const double v) {
 Expression ExpressionAsin::Expand() const {
   const Expression& arg{get_argument()};
   return asin(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionAsin::EvaluatePartial(const Environment& env) const {
+  return asin(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionAsin::Substitute(const Substitution& s) const {
@@ -1523,6 +1618,10 @@ Expression ExpressionAcos::Expand() const {
   return acos(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionAcos::EvaluatePartial(const Environment& env) const {
+  return acos(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionAcos::Substitute(const Substitution& s) const {
   return acos(get_argument().Substitute(s));
 }
@@ -1550,6 +1649,10 @@ Expression ExpressionAtan::Expand() const {
   return atan(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionAtan::EvaluatePartial(const Environment& env) const {
+  return atan(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionAtan::Substitute(const Substitution& s) const {
   return atan(get_argument().Substitute(s));
 }
@@ -1564,7 +1667,9 @@ ostream& ExpressionAtan::Display(ostream& os) const {
   return os << "atan(" << get_argument() << ")";
 }
 
-double ExpressionAtan::DoEvaluate(const double v) const { return std::atan(v); }
+double ExpressionAtan::DoEvaluate(const double v) const {
+  return std::atan(v);
+}
 
 ExpressionAtan2::ExpressionAtan2(const Expression& e1, const Expression& e2)
     : BinaryExpressionCell{ExpressionKind::Atan2, e1, e2, false,
@@ -1575,6 +1680,11 @@ Expression ExpressionAtan2::Expand() const {
   const Expression& e2{get_second_argument()};
   return atan2(e1.is_expanded() ? e1 : e1.Expand(),
                e2.is_expanded() ? e2 : e2.Expand());
+}
+
+Expression ExpressionAtan2::EvaluatePartial(const Environment& env) const {
+  return atan2(get_first_argument().EvaluatePartial(env),
+               get_second_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionAtan2::Substitute(const Substitution& s) const {
@@ -1607,6 +1717,10 @@ Expression ExpressionSinh::Expand() const {
   return sinh(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionSinh::EvaluatePartial(const Environment& env) const {
+  return sinh(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionSinh::Substitute(const Substitution& s) const {
   return sinh(get_argument().Substitute(s));
 }
@@ -1621,7 +1735,9 @@ ostream& ExpressionSinh::Display(ostream& os) const {
   return os << "sinh(" << get_argument() << ")";
 }
 
-double ExpressionSinh::DoEvaluate(const double v) const { return std::sinh(v); }
+double ExpressionSinh::DoEvaluate(const double v) const {
+  return std::sinh(v);
+}
 
 ExpressionCosh::ExpressionCosh(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Cosh, e, false, e.is_expanded()} {}
@@ -1629,6 +1745,10 @@ ExpressionCosh::ExpressionCosh(const Expression& e)
 Expression ExpressionCosh::Expand() const {
   const Expression& arg{get_argument()};
   return cosh(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionCosh::EvaluatePartial(const Environment& env) const {
+  return cosh(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionCosh::Substitute(const Substitution& s) const {
@@ -1645,7 +1765,9 @@ ostream& ExpressionCosh::Display(ostream& os) const {
   return os << "cosh(" << get_argument() << ")";
 }
 
-double ExpressionCosh::DoEvaluate(const double v) const { return std::cosh(v); }
+double ExpressionCosh::DoEvaluate(const double v) const {
+  return std::cosh(v);
+}
 
 ExpressionTanh::ExpressionTanh(const Expression& e)
     : UnaryExpressionCell{ExpressionKind::Tanh, e, false, e.is_expanded()} {}
@@ -1653,6 +1775,10 @@ ExpressionTanh::ExpressionTanh(const Expression& e)
 Expression ExpressionTanh::Expand() const {
   const Expression& arg{get_argument()};
   return tanh(arg.is_expanded() ? arg : arg.Expand());
+}
+
+Expression ExpressionTanh::EvaluatePartial(const Environment& env) const {
+  return tanh(get_argument().EvaluatePartial(env));
 }
 
 Expression ExpressionTanh::Substitute(const Substitution& s) const {
@@ -1669,7 +1795,9 @@ ostream& ExpressionTanh::Display(ostream& os) const {
   return os << "tanh(" << get_argument() << ")";
 }
 
-double ExpressionTanh::DoEvaluate(const double v) const { return std::tanh(v); }
+double ExpressionTanh::DoEvaluate(const double v) const {
+  return std::tanh(v);
+}
 
 ExpressionMin::ExpressionMin(const Expression& e1, const Expression& e2)
     : BinaryExpressionCell{ExpressionKind::Min, e1, e2, false,
@@ -1682,6 +1810,11 @@ Expression ExpressionMin::Expand() const {
              e2.is_expanded() ? e2 : e2.Expand());
 }
 
+Expression ExpressionMin::EvaluatePartial(const Environment& env) const {
+  return min(get_first_argument().EvaluatePartial(env),
+             get_second_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionMin::Substitute(const Substitution& s) const {
   return min(get_first_argument().Substitute(s),
              get_second_argument().Substitute(s));
@@ -1691,10 +1824,9 @@ Expression ExpressionMin::Differentiate(const Variable& x) const {
   if (GetVariables().include(x)) {
     const Expression& e1{get_first_argument()};
     const Expression& e2{get_second_argument()};
-    return if_then_else(e1 < e2, e1.Differentiate(x),
-                        if_then_else(
-                            e1 == e2, Expression::NaN(),
-                            e2.Differentiate(x)));
+    return if_then_else(
+        e1 < e2, e1.Differentiate(x),
+        if_then_else(e1 == e2, Expression::NaN(), e2.Differentiate(x)));
   } else {
     return Expression::Zero();
   }
@@ -1720,6 +1852,11 @@ Expression ExpressionMax::Expand() const {
              e2.is_expanded() ? e2 : e2.Expand());
 }
 
+Expression ExpressionMax::EvaluatePartial(const Environment& env) const {
+  return max(get_first_argument().EvaluatePartial(env),
+             get_second_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionMax::Substitute(const Substitution& s) const {
   return max(get_first_argument().Substitute(s),
              get_second_argument().Substitute(s));
@@ -1729,9 +1866,9 @@ Expression ExpressionMax::Differentiate(const Variable& x) const {
   if (GetVariables().include(x)) {
     const Expression& e1{get_first_argument()};
     const Expression& e2{get_second_argument()};
-    return if_then_else(e1 > e2, e1.Differentiate(x),
-                        if_then_else(e1 == e2, Expression::NaN(),
-                                     e2.Differentiate(x)));
+    return if_then_else(
+        e1 > e2, e1.Differentiate(x),
+        if_then_else(e1 == e2, Expression::NaN(), e2.Differentiate(x)));
   } else {
     return Expression::Zero();
   }
@@ -1754,6 +1891,10 @@ Expression ExpressionCeiling::Expand() const {
   return ceil(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionCeiling::EvaluatePartial(const Environment& env) const {
+  return ceil(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionCeiling::Substitute(const Substitution& s) const {
   return ceil(get_argument().Substitute(s));
 }
@@ -1762,8 +1903,7 @@ Expression ExpressionCeiling::Differentiate(const Variable& x) const {
   if (GetVariables().include(x)) {
     const Expression& arg{get_argument()};
     // FYI:  'ceil(x) == floor(x)` is the same as `x % 1 == 0`.
-    return if_then_else(ceil(arg) == floor(arg),
-                        Expression::NaN(),
+    return if_then_else(ceil(arg) == floor(arg), Expression::NaN(),
                         Expression::Zero());
   } else {
     return Expression::Zero();
@@ -1786,6 +1926,10 @@ Expression ExpressionFloor::Expand() const {
   return floor(arg.is_expanded() ? arg : arg.Expand());
 }
 
+Expression ExpressionFloor::EvaluatePartial(const Environment& env) const {
+  return floor(get_argument().EvaluatePartial(env));
+}
+
 Expression ExpressionFloor::Substitute(const Substitution& s) const {
   return floor(get_argument().Substitute(s));
 }
@@ -1794,8 +1938,7 @@ Expression ExpressionFloor::Differentiate(const Variable& x) const {
   if (GetVariables().include(x)) {
     const Expression& arg{get_argument()};
     // FYI:  'ceil(x) == floor(x)` is the same as `x % 1 == 0`.
-    return if_then_else(ceil(arg) == floor(arg),
-                        Expression::NaN(),
+    return if_then_else(ceil(arg) == floor(arg), Expression::NaN(),
                         Expression::Zero());
   } else {
     return Expression::Zero();
@@ -1875,6 +2018,17 @@ Expression ExpressionIfThenElse::Expand() const {
   throw runtime_error("Not yet implemented.");
 }
 
+Expression ExpressionIfThenElse::EvaluatePartial(const Environment& env) const {
+  // TODO(jwnimmer-tri) We could define a Formula::EvaluatePartial for improved
+  // performance, if necessary.
+  Substitution subst;
+  for (const pair<const Variable, double>& p : env) {
+    subst.emplace(p.first, p.second);
+  }
+  return if_then_else(f_cond_.Substitute(subst), e_then_.EvaluatePartial(env),
+                      e_else_.EvaluatePartial(env));
+}
+
 Expression ExpressionIfThenElse::Substitute(const Substitution& s) const {
   return if_then_else(f_cond_.Substitute(s), e_then_.Substitute(s),
                       e_else_.Substitute(s));
@@ -1891,8 +2045,7 @@ Expression ExpressionIfThenElse::Differentiate(const Variable& x) const {
       return if_then_else(
           get_lhs_expression(f_cond_) == get_rhs_expression(f_cond_),
           Expression::NaN(),
-          if_then_else(f_cond_,
-                       e_then_.Differentiate(x),
+          if_then_else(f_cond_, e_then_.Differentiate(x),
                        e_else_.Differentiate(x)));
     } else {
       // Because we cannot write an expression for whether the condition is
@@ -1967,8 +2120,9 @@ bool ExpressionUninterpretedFunction::Less(const ExpressionCell& e) const {
   }
   return lexicographical_compare(
       arguments_.begin(), arguments_.end(), uf_e.arguments_.begin(),
-      uf_e.arguments_.end(),
-      [](const Expression& e1, const Expression& e2) { return e1.Less(e2); });
+      uf_e.arguments_.end(), [](const Expression& e1, const Expression& e2) {
+        return e1.Less(e2);
+      });
 }
 
 double ExpressionUninterpretedFunction::Evaluate(const Environment&) const {
@@ -1980,6 +2134,16 @@ Expression ExpressionUninterpretedFunction::Expand() const {
   new_arguments.reserve(arguments_.size());
   for (const Expression& arg : arguments_) {
     new_arguments.push_back(arg.is_expanded() ? arg : arg.Expand());
+  }
+  return uninterpreted_function(name_, std::move(new_arguments));
+}
+
+Expression ExpressionUninterpretedFunction::EvaluatePartial(
+    const Environment& env) const {
+  vector<Expression> new_arguments;
+  new_arguments.reserve(arguments_.size());
+  for (const Expression& arg : arguments_) {
+    new_arguments.push_back(arg.EvaluatePartial(env));
   }
   return uninterpreted_function(name_, std::move(new_arguments));
 }
@@ -2126,8 +2290,8 @@ UnaryExpressionCell& to_unary(Expression* const e) {
 }
 
 bool is_binary(const ExpressionCell& cell) {
-  return (is_division(cell) || is_pow(cell) || is_atan2(cell) ||
-          is_min(cell) || is_max(cell));
+  return (is_division(cell) || is_pow(cell) || is_atan2(cell) || is_min(cell) ||
+          is_max(cell));
 }
 
 const BinaryExpressionCell& to_binary(const Expression& e) {

@@ -20,6 +20,9 @@ struct MeshcatVisualizerParams {
     a->Visit(DRAKE_NVP(default_color));
     a->Visit(DRAKE_NVP(prefix));
     a->Visit(DRAKE_NVP(delete_on_initialization_event));
+    a->Visit(DRAKE_NVP(enable_alpha_slider));
+    a->Visit(DRAKE_NVP(visible_by_default));
+    a->Visit(DRAKE_NVP(show_hydroelastic));
   }
 
   /** The duration (in simulation seconds) between attempts to update poses in
@@ -41,11 +44,35 @@ struct MeshcatVisualizerParams {
    details. */
   std::string prefix{"visualizer"};
 
-  /** Determines whether to send a Meschat::Delete(prefix) message on an
+  /** Determines whether to send a Meshcat::Delete(prefix) message on an
    initialization event to remove any visualizations e.g. from a previous
    simulation. See @ref declare_initialization_events "Declare initialization
    events" for more information. */
   bool delete_on_initialization_event{true};
+
+  /** Determines whether to enable the alpha slider for geometry display. */
+  bool enable_alpha_slider{false};
+
+  /** Determines whether our meshcat path should be default to being visible. */
+  bool visible_by_default{true};
+
+  /** When using the hydroelastic contact model, collision geometries that are
+  _declared_ as geometric primitives are frequently represented by some
+  discretely tessellated mesh when computing contact. It can be quite helpful
+  in assessing contact behavior to visualize these discrete meshes (in place of
+  the idealized primitives).
+
+  To visualize these representations it is necessary to request visualization
+  of geometries with the Role::kProximity role (see the role field). It is
+  further necessary to explicitly request the hydroelastic meshes where
+  available (setting show_hydroelastic to `true`).
+
+  Setting this `show_hydroelastic` to `true` will have no apparent effect if
+  none of the collision meshes have a hydroelastic mesh associated with them.
+
+  This option is ignored by MeshcatVisualizer<T> when T is not `double`, e.g.
+  if T == AutoDiffXd. */
+  bool show_hydroelastic{false};
 };
 
 }  // namespace geometry

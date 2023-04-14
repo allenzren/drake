@@ -8,7 +8,6 @@
 #include <stdexcept>
 
 #include <fmt/format.h>
-#include <fmt/ostream.h>
 
 #include "drake/common/drake_assert.h"
 #include "drake/common/never_destroyed.h"
@@ -27,9 +26,9 @@ using std::ostream;
 using std::ostringstream;
 using std::pair;
 using std::runtime_error;
-using std::unique_ptr;
 using std::streamsize;
 using std::string;
+using std::unique_ptr;
 using std::vector;
 
 namespace {
@@ -173,18 +172,16 @@ double Expression::Evaluate(RandomGenerator* const random_generator) const {
 Eigen::SparseMatrix<double> Evaluate(
     const Eigen::Ref<const Eigen::SparseMatrix<Expression>>& m,
     const Environment& env) {
-  return m.unaryExpr([&env](const Expression& e) { return e.Evaluate(env); });
+  return m.unaryExpr([&env](const Expression& e) {
+    return e.Evaluate(env);
+  });
 }
 
 Expression Expression::EvaluatePartial(const Environment& env) const {
-  if (env.empty()) {
+  if (is_constant(*this) || env.empty()) {
     return *this;
   }
-  Substitution subst;
-  for (const pair<const Variable, double>& p : env) {
-    subst.emplace(p.first, p.second);
-  }
-  return Substitute(subst);
+  return cell().EvaluatePartial(env);
 }
 
 Expression Expression::Expand() const {
@@ -213,13 +210,10 @@ Expression Expression::Substitute(const Variable& var,
 }
 
 Expression Expression::Substitute(const Substitution& s) const {
-  if (is_constant(*this)) {
+  if (is_constant(*this) || s.empty()) {
     return *this;
   }
-  if (!s.empty()) {
-    return cell().Substitute(s);
-  }
-  return *this;
+  return cell().Substitute(s);
 }
 
 Expression Expression::Differentiate(const Variable& x) const {
@@ -284,7 +278,7 @@ void Expression::AddImpl(const Expression& rhs) {
     }
   }
   // Extract an expression from factory
-  lhs = add_factory.GetExpression();
+  lhs = std::move(add_factory).GetExpression();
 }
 
 Expression& Expression::operator++() {
@@ -298,7 +292,9 @@ Expression Expression::operator++(int) {
   return copy;
 }
 
-Expression operator+(const Expression& e) { return e; }
+Expression operator+(const Expression& e) {
+  return e;
+}
 
 void Expression::SubImpl(const Expression& rhs) {
   Expression& lhs = *this;
@@ -492,7 +488,7 @@ void Expression::MulImpl(const Expression& rhs) {
       mul_factory.AddExpression(rhs);
     }
   }
-  lhs = mul_factory.GetExpression();
+  lhs = std::move(mul_factory).GetExpression();
 }
 
 void Expression::DivImpl(const Expression& rhs) {
@@ -736,6 +732,12 @@ Expression max(const Expression& e1, const Expression& e2) {
   return Expression{make_unique<ExpressionMax>(e1, e2)};
 }
 
+Expression clamp(const Expression& v, const Expression& lo,
+                 const Expression& hi) {
+  DRAKE_ASSERT(!is_constant(lo) || !is_constant(hi) || (lo <= hi));
+  return min(hi, max(lo, v));
+}
+
 Expression ceil(const Expression& e) {
   // Simplification: constant folding.
   if (is_constant(e)) {
@@ -818,8 +820,12 @@ const Expression& get_else_expression(const Expression& e) {
   return to_if_then_else(e).get_else_expression();
 }
 
-Expression operator+(const Variable& var) { return Expression{var}; }
-Expression operator-(const Variable& var) { return -Expression{var}; }
+Expression operator+(const Variable& var) {
+  return Expression{var};
+}
+Expression operator-(const Variable& var) {
+  return -Expression{var};
+}
 
 VectorX<Variable> GetVariableVector(
     const Eigen::Ref<const VectorX<Expression>>& evec) {
@@ -943,7 +949,7 @@ Expression Exp(const vector<Expression>& terms, const MultiIndex& alpha) {
   for (size_t i = 0; i < terms.size(); ++i) {
     factory.AddExpression(pow(terms[i], alpha[i]));
   }
-  return factory.GetExpression();
+  return std::move(factory).GetExpression();
 }
 
 // Computes ∑_{|α| = order} ∂fᵅ(a) / α! * (x - a)ᵅ.
@@ -980,7 +986,7 @@ Expression TaylorExpand(const Expression& f, const Environment& a,
   for (int i = 1; i <= order; ++i) {
     DoTaylorExpand(f, a, terms, i, num_vars, &factory);
   }
-  return factory.GetExpression();
+  return std::move(factory).GetExpression();
 }
 
 namespace {

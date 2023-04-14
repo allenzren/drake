@@ -3,6 +3,10 @@ import pydrake.visualization as mut
 import copy
 import unittest
 
+from pydrake.geometry import (
+    Meshcat, Rgba,
+)
+
 from pydrake.lcm import (
     DrakeLcm,
 )
@@ -18,6 +22,13 @@ from pydrake.systems.framework import (
 
 
 class TestConfig(unittest.TestCase):
+
+    def test_visualization_config(self):
+        """Confirms that the (slightly unusual) bindings of Rgba values operate
+        as expected.
+        """
+        dut = mut.VisualizationConfig()
+        self.assertIsInstance(dut.default_illustration_color, Rgba)
 
     def test_apply_visualization_config(self):
         """Exercises VisualizationConfig and ApplyVisualizationConfig.
@@ -44,4 +55,5 @@ class TestConfig(unittest.TestCase):
         builder = DiagramBuilder()
         plant, scene_graph = AddMultibodyPlantSceneGraph(builder, 0.0)
         plant.Finalize()
-        config = mut.AddDefaultVisualization(builder=builder)
+        meshcat = Meshcat()
+        config = mut.AddDefaultVisualization(builder=builder, meshcat=meshcat)

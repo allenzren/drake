@@ -34,9 +34,8 @@ TEST_F(MathematicalProgramResultTest, DefaultConstructor) {
   EXPECT_EQ(result.get_x_val().size(), 0);
   EXPECT_TRUE(std::isnan(result.get_optimal_cost()));
   EXPECT_EQ(result.num_suboptimal_solution(), 0);
-  DRAKE_EXPECT_THROWS_MESSAGE(
-      result.get_abstract_solver_details(),
-      "The solver_details has not been set yet.");
+  DRAKE_EXPECT_THROWS_MESSAGE(result.get_abstract_solver_details(),
+                              "The solver_details has not been set yet.");
 }
 
 TEST_F(MathematicalProgramResultTest, Setters) {
@@ -90,9 +89,9 @@ TEST_F(MathematicalProgramResultTest, GetSolution) {
   // Get a solution of an Expression (with additional Variables).
   const symbolic::Variable x_extra{"extra"};
   const symbolic::Expression e{x0_ + x_extra};
-  EXPECT_TRUE(result.GetSolution(e).EqualTo(symbolic::Expression{x_val(0) +
-  x_extra}));
-  const Vector2<symbolic::Expression> m{x0_ + x_extra, x1_*x_extra};
+  EXPECT_TRUE(
+      result.GetSolution(e).EqualTo(symbolic::Expression{x_val(0) + x_extra}));
+  const Vector2<symbolic::Expression> m{x0_ + x_extra, x1_ * x_extra};
   const Vector2<symbolic::Expression> msol = result.GetSolution(m);
   EXPECT_TRUE(msol[0].EqualTo(x_val(0) + x_extra));
   EXPECT_TRUE(msol[1].EqualTo(x_val(1) * x_extra));
@@ -113,7 +112,7 @@ TEST_F(MathematicalProgramResultTest, GetSolutionPolynomial) {
   const symbolic::Polynomial p1(2 * t1 * t1 + t2, {t1, t2});
   EXPECT_PRED2(symbolic::test::PolyEqual, p1, result.GetSolution(p1));
 
-  // p2's coeffcients are expressions of x0 and x1
+  // p2's coefficients are expressions of x0 and x1
   const symbolic::Polynomial p2(
       (1 + x0_ * x1_) * t1 * t1 + 2 * sin(x1_) * t1 * t2 + 3 * x0_, {t1, t2});
   EXPECT_PRED2(
@@ -268,30 +267,41 @@ GTEST_TEST(TestMathematicalProgramResult, GetInfeasibleConstraintNames) {
 
 GTEST_TEST(TestMathematicalProgramResult, GetInfeasibleConstraintBindings) {
   MathematicalProgram prog;
-  auto x = prog.NewContinuousVariables<2>();
-  auto constraint1 = prog.AddBoundingBoxConstraint(0, 0, x);
-  auto constraint2 = prog.AddBoundingBoxConstraint(1, 1, x);
+  auto x = prog.NewContinuousVariables<3>();
+  // Choose constraint values such that x=0 should violate all constraints.
+  const Eigen::Vector2d value1 = Eigen::Vector2d::Constant(10);
+  const Eigen::Vector3d value2 = Eigen::Vector3d::Constant(100);
+  auto constraint1 = prog.AddBoundingBoxConstraint(value1, value1, x.head<2>());
+  auto constraint2 = prog.AddBoundingBoxConstraint(value2, value2, x);
   SnoptSolver solver;
   if (solver.is_available()) {
     const auto result = solver.Solve(prog);
     EXPECT_FALSE(result.is_success());
-    const std::vector<Binding<Constraint>> infeasible_bindings =
-        result.GetInfeasibleConstraints(prog);
-    const std::unordered_set<Binding<Constraint>> infeasible_bindings_set(
-        infeasible_bindings.begin(), infeasible_bindings.end());
-    const double x_val = result.GetSolution(x)(0);
-    EXPECT_TRUE(infeasible_bindings_set.size() == 1 ||
-                infeasible_bindings.size() == 2);
-    if (std::abs(x_val) > 1e-4) {
-      EXPECT_GT(infeasible_bindings_set.count(constraint1), 0);
+    const double tol = 1e-4;
+    using Bindings = std::vector<Binding<Constraint>>;
+    const Bindings infeasible_bindings =
+        result.GetInfeasibleConstraints(prog, tol);
+    const Eigen::Vector3d x_sol = result.GetSolution(x);
+    const bool violates_constraint1 =
+        !constraint1.evaluator()->CheckSatisfied(x_sol.head<2>(), tol);
+    const bool violates_constraint2 =
+        !constraint2.evaluator()->CheckSatisfied(x_sol, tol);
+    // At least one of the constraints should be violated.
+    EXPECT_TRUE(violates_constraint1 || violates_constraint2);
+    // Ensure we only have one occurrence of each in the order in which we
+    // added them.
+    Bindings bindings_expected;
+    if (violates_constraint1) {
+      bindings_expected.push_back(constraint1);
     }
-    if (std::abs(x_val - 1) > 1e-4) {
-      EXPECT_GT(infeasible_bindings_set.count(constraint2), 0);
+    if (violates_constraint2) {
+      bindings_expected.push_back(constraint2);
     }
+    EXPECT_EQ(infeasible_bindings, bindings_expected);
     // If I relax the tolerance, then GetInfeasibleConstraintBindings returns an
     // empty vector.
     const std::vector<Binding<Constraint>> infeasible_bindings_relaxed =
-        result.GetInfeasibleConstraints(prog, 2);
+        result.GetInfeasibleConstraints(prog, 1000);
     EXPECT_EQ(infeasible_bindings_relaxed.size(), 0);
   }
 }
